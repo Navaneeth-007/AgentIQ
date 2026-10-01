@@ -1,0 +1,82 @@
+[
+  {
+    "id": "task_001",
+    "question": "Which product category had the highest total revenue last quarter?",
+    "expected_tools": ["sql_query"],
+    "expected_min_steps": 1,
+    "answer_must_contain": ["category", "revenue"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "task_002",
+    "question": "Show me monthly sales trends for all regions over the past year as a chart.",
+    "expected_tools": ["sql_query", "python_repl"],
+    "expected_min_steps": 2,
+    "answer_must_contain": ["region", "trend"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "task_003",
+    "question": "Which customers have the top 5 highest lifetime value and what tier are they?",
+    "expected_tools": ["sql_query"],
+    "expected_min_steps": 1,
+    "answer_must_contain": ["customer", "tier"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "task_004",
+    "question": "Find all orders that took more than 7 days to ship. How many are there and which region has the most?",
+    "expected_tools": ["sql_query"],
+    "expected_min_steps": 1,
+    "answer_must_contain": ["region", "days"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "task_005",
+    "question": "What is the average salary by department, and which department has the highest headcount?",
+    "expected_tools": ["sql_query", "python_repl"],
+    "expected_min_steps": 2,
+    "answer_must_contain": ["department", "salary"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "task_006",
+    "question": "Compare our top-selling product category to industry benchmarks — search for relevant data.",
+    "expected_tools": ["sql_query", "web_search"],
+    "expected_min_steps": 2,
+    "answer_must_contain": ["category", "benchmark"],
+    "difficulty": "hard"
+  },
+  {
+    "id": "task_007",
+    "question": "What was our total revenue, average order value, and return rate in 2024?",
+    "expected_tools": ["sql_query"],
+    "expected_min_steps": 1,
+    "answer_must_contain": ["revenue", "return"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "task_008",
+    "question": "Generate a chart showing the distribution of order amounts as a histogram.",
+    "expected_tools": ["sql_query", "python_repl"],
+    "expected_min_steps": 2,
+    "answer_must_contain": ["distribution"],
+    "difficulty": "medium"
+  },
+  {
+    "id": "task_009",
+    "question": "Which employees were hired in 2023 and what is their department breakdown?",
+    "expected_tools": ["sql_query"],
+    "expected_min_steps": 1,
+    "answer_must_contain": ["2023", "department"],
+    "difficulty": "easy"
+  },
+  {
+    "id": "task_010",
+    "question": "What percentage of customers in each tier placed an order in the last 6 months?",
+    "expected_tools": ["sql_query", "python_repl"],
+    "expected_min_steps": 2,
+    "answer_must_contain": ["tier", "percentage"],
+    "difficulty": "hard"
+  }
+]

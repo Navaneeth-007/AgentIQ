@@ -1,0 +1,29 @@
+# Core
+anthropic>=0.40.0
+langgraph>=0.2.0
+langchain-core>=0.3.0
+fastapi>=0.115.0
+uvicorn>=0.30.0
+pydantic>=2.0.0
+
+# Tools
+tavily-python>=0.5.0       # Web search (preferred)
+requests>=2.32.0            # HTTP for API tool + SerpAPI fallback
+pandas>=2.2.0               # Python REPL data analysis
+numpy>=1.26.0               # Numerical ops
+matplotlib>=3.9.0           # Chart generation
+
+# Frontend
+streamlit>=1.40.0
+
+# Optional LLM providers
+openai>=1.50.0              # Switch via LLM_PROVIDER=openai
+
+# Optional DB
+psycopg2-binary>=2.9.0     # Postgres support (optional)
+
+# Dev / test
+pytest>=8.0.0
+pytest-asyncio>=0.24.0
+ruff>=0.7.0
+tabulate>=0.9.0              # pandas .to_markdown()
