@@ -39,6 +39,32 @@ def _rows_to_json(cursor: sqlite3.Cursor) -> list[dict]:
     return [dict(zip(cols, row)) for row in cursor.fetchmany(MAX_ROWS)]
 
 
+def inspect_schema(db_path: str = "default") -> dict:
+    """Return SQLite tables and columns without exposing raw PRAGMA syntax to the model."""
+    resolved = str(SAMPLE_DB_PATH) if db_path == "default" else db_path
+    if not Path(resolved).exists():
+        raise FileNotFoundError(
+            f"Database not found: {resolved}. "
+            "Run `python scripts/seed_database.py` to create the sample DB."
+        )
+
+    conn = sqlite3.connect(resolved)
+    try:
+        tables = []
+        for (table_name, create_sql) in conn.execute(
+            "SELECT name, sql FROM sqlite_master "
+            "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ):
+            columns = [
+                {"name": row[1], "type": row[2], "primary_key": bool(row[5])}
+                for row in conn.execute(f'PRAGMA table_info("{table_name}")')
+            ]
+            tables.append({"name": table_name, "sql": create_sql, "columns": columns})
+        return {"tables": tables}
+    finally:
+        conn.close()
+
+
 def run_sql_query(query: str, db_path: str = "default") -> dict:
     """
     Execute a read-only SQL query and return results as JSON.

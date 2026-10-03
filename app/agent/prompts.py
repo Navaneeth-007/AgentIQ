@@ -9,6 +9,10 @@ from __future__ import annotations
 
 AVAILABLE_TOOLS = """
 Available tools:
+  schema_inspect(db_path: str = "default")
+    → Inspect available tables and columns in the database.
+    → Use before writing SQL when the schema is not already known.
+
   sql_query(query: str, db_path: str = "default")
     → Execute a read-only SQL query. Returns rows as JSON.
     → Use for: structured data in the sample DB or any SQLite/Postgres source.
@@ -45,7 +49,9 @@ def planner_prompt(question: str, scratchpad: str = "") -> str:
 Rules:
 - Choose the minimum number of steps needed. Don't add steps for their own sake.
 - Each step must specify exactly one tool.
-- sql_query steps must include the intended SQL (or a description if schema is unknown yet).
+- Use schema_inspect rather than inventing PRAGMA or sqlite_master queries when the schema is unknown.
+- sql_query steps must include the intended SQL (or a description if schema_inspect runs first).
+- For relative dates such as "last quarter", first establish the latest date represented by the data and use the latest complete quarter available in that data.
 - python_repl steps for charts must describe what axes and data to plot.
 - Only include email_send if the user explicitly asked to email results.
 - Output ONLY valid JSON — no preamble, no explanation, no markdown fences.
@@ -74,6 +80,7 @@ Your task:
 2. Output ONLY valid JSON with the tool input. No preamble.
 
 For sql_query: {{"query": "SELECT ...", "db_path": "default"}}
+For schema_inspect: {{"db_path": "default"}}
 For web_search: {{"query": "...", "num_results": 5}}
 For python_repl: {{"code": "import pandas as pd\\n..."}}
 For file_read: {{"path": "..."}}

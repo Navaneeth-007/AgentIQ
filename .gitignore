@@ -1,3 +1,21 @@
 .env
 .DS_Store
 .venv
+
+# Python caches and local tooling
+__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+
+# Local build and packaging output
+build/
+dist/
+*.egg-info/
+
+# Generated local data, databases, reports, and logs
+data/
+*.log

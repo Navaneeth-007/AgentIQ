@@ -41,7 +41,7 @@ def check_question(question: str) -> None:
 def check_prompt_injection(text: str) -> None:
     """Detect common prompt injection patterns."""
     injection_patterns = [
-        r"ignore (all |previous |prior )?instructions",
+        r"ignore (all )?(previous |prior )?instructions",
         r"disregard (all |your |the )?instructions",
         r"forget (everything|what you were told)",
         r"you are now",

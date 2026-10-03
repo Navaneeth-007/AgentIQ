@@ -27,7 +27,7 @@ class LLMClient:
             return os.getenv("OPENAI_MODEL", "gpt-4o")
         return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
-    def complete(self, prompt: str, system: str | None = None, max_tokens: int = 2048) -> dict[str, Any]:
+    def complete(self, prompt: str, system: str | None = None, max_tokens: int = 4096) -> dict[str, Any]:
         """
         Send a prompt and return {"content": str, "usage": {"total_tokens": N}}.
         """
@@ -70,18 +70,37 @@ class LLMClient:
         if not api_key:
             raise EnvironmentError("OPENAI_API_KEY not set in .env")
 
-        client = OpenAI(api_key=api_key)
+        client_kwargs: dict[str, Any] = {
+            "api_key": api_key,
+            "timeout": float(os.getenv("LLM_TIMEOUT_SECONDS", "45")),
+        }
+        base_url = os.getenv("OPENAI_BASE_URL")
+        if base_url:
+            client_kwargs["base_url"] = base_url
+
+        client = OpenAI(**client_kwargs)
         messages = []
         if system:
             messages.append({"role": "system", "content": system})
         messages.append({"role": "user", "content": prompt})
 
-        response = client.chat.completions.create(
-            model=self.model,
-            messages=messages,
-            max_tokens=max_tokens,
-        )
+        request_kwargs: dict[str, Any] = {
+            "model": self.model,
+            "messages": messages,
+            "max_tokens": max_tokens,
+        }
+        if base_url and "openrouter.ai" in base_url:
+            request_kwargs["extra_body"] = {"reasoning": {"exclude": True}}
+
+        response = client.chat.completions.create(**request_kwargs)
         content = response.choices[0].message.content or ""
+        if not content.strip():
+            finish_reason = response.choices[0].finish_reason
+            raise RuntimeError(
+                "LLM returned no text content "
+                f"(model={self.model}, finish_reason={finish_reason}). "
+                "Try a non-reasoning model or increase the token limit."
+            )
         total_tokens = response.usage.total_tokens if response.usage else 0
 
         return {"content": content, "usage": {"total_tokens": total_tokens}}

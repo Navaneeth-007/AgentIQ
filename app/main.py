@@ -9,6 +9,7 @@ Endpoints:
 
 from __future__ import annotations
 
+import asyncio
 import logging
 import time
 import uuid
@@ -78,9 +79,20 @@ async def run_task(req: RunRequest):
 
     t0 = time.time()
     try:
-        final_state = run_agent(question=req.question, session_id=session_id)
+        final_state = await asyncio.to_thread(
+            run_agent,
+            question=req.question,
+            session_id=session_id,
+        )
     except Exception as e:
         logger.exception("Agent run failed for session %s", session_id)
+        error_text = str(e)
+        if "429" in error_text or "rate limit" in error_text.lower():
+            raise HTTPException(
+                status_code=429,
+                detail="The configured OpenRouter model is rate-limited or its free quota is exhausted. "
+                "Wait for the quota reset, choose another available model, or add credits.",
+            )
         raise HTTPException(status_code=500, detail=f"Agent error: {e}")
 
     latency_ms = (time.time() - t0) * 1000

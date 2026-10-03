@@ -21,7 +21,7 @@ from app.agent.prompts import planner_prompt, executor_prompt, reflector_prompt,
 from app.generation.llm_client import LLMClient
 from app.generation.cost_tracker import estimate_cost
 from app.reporting.report_builder import build_html_report
-from app.tools.sql_tool import run_sql_query
+from app.tools.sql_tool import inspect_schema, run_sql_query
 from app.tools.search_tool import run_web_search
 from app.tools.python_repl import run_python_repl
 from app.tools.file_tool import read_file
@@ -31,6 +31,7 @@ from app.tools.email_tool import send_email
 logger = logging.getLogger(__name__)
 
 TOOL_REGISTRY = {
+    "schema_inspect": inspect_schema,
     "sql_query": run_sql_query,
     "web_search": run_web_search,
     "python_repl": run_python_repl,
@@ -49,9 +50,26 @@ def _call_llm(client: LLMClient, prompt: str, state: AgentState) -> tuple[str, i
 
 
 def _parse_json(text: str) -> dict[str, Any]:
-    """Strip markdown fences and parse JSON."""
-    cleaned = text.strip().removeprefix("```json").removeprefix("```").removesuffix("```").strip()
-    return json.loads(cleaned)
+    """Parse a JSON object even when a model adds fences or brief prose."""
+    cleaned = text.strip()
+    if cleaned.startswith("```"):
+        cleaned = cleaned.removeprefix("```json").removeprefix("```").strip()
+        cleaned = cleaned.removesuffix("```").strip()
+
+    decoder = json.JSONDecoder()
+    last_error: json.JSONDecodeError | None = None
+    for start in (index for index, char in enumerate(cleaned) if char == "{"):
+        try:
+            parsed, _ = decoder.raw_decode(cleaned[start:])
+        except json.JSONDecodeError as exc:
+            last_error = exc
+            continue
+        if isinstance(parsed, dict):
+            return parsed
+
+    if last_error:
+        raise last_error
+    raise json.JSONDecodeError("Expected a JSON object", cleaned, 0)
 
 
 # ── Node: Planner ─────────────────────────────────────────────────────────────
@@ -68,8 +86,12 @@ def planner_node(state: AgentState) -> dict:
     raw, tokens, cost = _call_llm(client, prompt, state)
     latency = (time.time() - t0) * 1000
 
+    planner_error: str | None = None
     try:
         parsed = _parse_json(raw)
+        plan_data = parsed.get("plan")
+        if not isinstance(plan_data, list) or not plan_data:
+            raise ValueError("Planner returned an empty or invalid plan")
         steps: list[PlanStep] = [
             PlanStep(
                 step_id=s["step_id"],
@@ -77,11 +99,19 @@ def planner_node(state: AgentState) -> dict:
                 tool=s["tool"],
                 status="pending",
             )
-            for s in parsed["plan"]
+            for s in plan_data
         ]
-    except (json.JSONDecodeError, KeyError) as e:
+    except (json.JSONDecodeError, KeyError, TypeError, ValueError) as e:
         logger.error("Planner JSON parse failed: %s\nRaw: %s", e, raw)
-        steps = []
+        planner_error = str(e)
+        steps = [
+            PlanStep(
+                step_id=1,
+                description="Inspect the available database tables and columns before planning the analysis.",
+                tool="schema_inspect",
+                status="pending",
+            )
+        ]
 
     logger.info("Plan created: %d steps", len(steps))
 
@@ -94,6 +124,7 @@ def planner_node(state: AgentState) -> dict:
             "node": "planner",
             "latency_ms": latency,
             "tokens": tokens,
+            "error": planner_error,
         }],
     }
 
@@ -111,6 +142,11 @@ def executor_node(state: AgentState) -> dict:
     """
     client = LLMClient()
     step_idx = state["current_step"]
+    if step_idx >= len(state["plan"]):
+        raise RuntimeError(
+            f"Agent plan contains no executable step at index {step_idx}. "
+            "The planner must return at least one valid step."
+        )
     step = state["plan"][step_idx]
 
     logger.info("Executing step %d: %s (%s)", step_idx + 1, step["description"], step["tool"])
@@ -130,6 +166,16 @@ def executor_node(state: AgentState) -> dict:
     except json.JSONDecodeError as e:
         error = f"Could not parse tool input: {e}"
         logger.error(error)
+
+    # Some OpenRouter models wrap arguments in a tool-call-shaped object even
+    # though this client requests plain JSON. Schema inspection has no model-
+    # dependent inputs, so it can be recovered deterministically.
+    if isinstance(tool_input.get("arguments"), dict):
+        tool_input = tool_input["arguments"]
+        error = None
+    elif step["tool"] == "schema_inspect" and error:
+        tool_input = {"db_path": "default"}
+        error = None
 
     # Execute the tool
     if not error:
@@ -295,6 +341,11 @@ def route_after_reflector(state: AgentState) -> str:
     if state["retry_count"] >= state["max_retries"]:
         logger.warning("Max retries reached, forcing reporter.")
         return "reporter"
+
+    # Tool failures need a fresh plan; continuing with a plan built on missing
+    # data produces reports that look complete but contain no answer.
+    if any(tool_call.get("error") for tool_call in state["tool_calls"]):
+        return "planner"
 
     # Check reflection result from last step log
     last_log = next(
