@@ -82,13 +82,16 @@ Your task:
 For sql_query: {{"query": "SELECT ...", "db_path": "default"}}
 For schema_inspect: {{"db_path": "default"}}
 For web_search: {{"query": "...", "num_results": 5}}
-For python_repl: {{"code": "import pandas as pd\\n..."}}
+For python_repl: {{"code": "df = pd.DataFrame(...)\\nprint(df)"}}
+Python already provides pd, np, plt and chart_path. Do not use imports. Save charts with plt.savefig(chart_path).
 For file_read: {{"path": "..."}}
 For api_fetch: {{"service": "weather|finance|news", "params": {{...}}}}
 For email_send: {{"to": "...", "subject": "...", "body": "...", "attachments": []}}"""
 
 
-def reflector_prompt(question: str, plan: list, tool_calls: list, scratchpad: str) -> str:
+def reflector_prompt(
+    question: str, plan: list, tool_calls: list, scratchpad: str
+) -> str:
     completed = [tc for tc in tool_calls if tc.get("error") is None]
     failed = [tc for tc in tool_calls if tc.get("error") is not None]
 
@@ -120,9 +123,13 @@ Output ONLY valid JSON:
 
 def reporter_prompt(question: str, scratchpad: str, chart_paths: list[str]) -> str:
     charts_note = (
-        f"\n\nCharts generated (reference by filename):\n" +
-        "\n".join(f"  - {p}" for p in chart_paths)
-    ) if chart_paths else ""
+        (
+            "\n\nCharts generated (reference by filename):\n"
+            + "\n".join(f"  - {p}" for p in chart_paths)
+        )
+        if chart_paths
+        else ""
+    )
 
     return f"""You are a senior data analyst writing a final report.
 

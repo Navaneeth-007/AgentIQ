@@ -8,8 +8,9 @@ Each service maps to a clean adapter that normalises the response.
 from __future__ import annotations
 
 import os
-import requests
 from typing import Any
+
+import requests
 
 
 def fetch_api(service: str, params: dict[str, Any]) -> dict:
@@ -43,12 +44,12 @@ def _fetch_weather(params: dict) -> dict:
     """
     api_key = os.getenv("OPENWEATHER_API_KEY")
     if not api_key:
-        raise EnvironmentError("OPENWEATHER_API_KEY not set in .env")
+        raise OSError("OPENWEATHER_API_KEY not set in .env")
 
     city = params.get("city", "")
     # Geocode
     geo_resp = requests.get(
-        "http://api.openweathermap.org/geo/1.0/direct",
+        "https://api.openweathermap.org/geo/1.0/direct",
         params={"q": city, "limit": 1, "appid": api_key},
         timeout=10,
     )
@@ -62,7 +63,13 @@ def _fetch_weather(params: dict) -> dict:
     # Forecast
     forecast_resp = requests.get(
         "https://api.openweathermap.org/data/2.5/forecast",
-        params={"lat": lat, "lon": lon, "appid": api_key, "units": "metric", "cnt": params.get("days", 3) * 8},
+        params={
+            "lat": lat,
+            "lon": lon,
+            "appid": api_key,
+            "units": "metric",
+            "cnt": params.get("days", 3) * 8,
+        },
         timeout=10,
     )
     forecast_resp.raise_for_status()
@@ -72,7 +79,12 @@ def _fetch_weather(params: dict) -> dict:
     for item in data["list"]:
         date = item["dt_txt"][:10]
         if date not in days:
-            days[date] = {"date": date, "temp_min": 999, "temp_max": -999, "conditions": []}
+            days[date] = {
+                "date": date,
+                "temp_min": 999,
+                "temp_max": -999,
+                "conditions": [],
+            }
         t = item["main"]["temp"]
         days[date]["temp_min"] = min(days[date]["temp_min"], t)
         days[date]["temp_max"] = max(days[date]["temp_max"], t)
@@ -89,7 +101,7 @@ def _fetch_finance(params: dict) -> dict:
     """
     api_key = os.getenv("ALPHAVANTAGE_API_KEY")
     if not api_key:
-        raise EnvironmentError("ALPHAVANTAGE_API_KEY not set in .env")
+        raise OSError("ALPHAVANTAGE_API_KEY not set in .env")
 
     ticker = params.get("ticker", "")
     resp = requests.get(
@@ -117,7 +129,7 @@ def _fetch_news(params: dict) -> dict:
     """
     api_key = os.getenv("NEWSAPI_KEY")
     if not api_key:
-        raise EnvironmentError("NEWSAPI_KEY not set in .env")
+        raise OSError("NEWSAPI_KEY not set in .env")
 
     resp = requests.get(
         "https://newsapi.org/v2/everything",

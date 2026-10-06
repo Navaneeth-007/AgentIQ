@@ -9,6 +9,7 @@ be emailed, downloaded, or hosted as static files.
 from __future__ import annotations
 
 import base64
+from html import escape
 from pathlib import Path
 
 
@@ -62,9 +63,9 @@ def build_html_report(
         trace_rows += f"""
         <tr>
             <td>{i}</td>
-            <td>{tc.get('tool_name', '')}</td>
-            <td class="{'ok' if tc.get('error') is None else 'err'}">{status}</td>
-            <td>{round(tc.get('latency_ms', 0))}ms</td>
+            <td>{escape(str(tc.get("tool_name", "")))}</td>
+            <td class="{"ok" if tc.get("error") is None else "err"}">{status}</td>
+            <td>{round(tc.get("latency_ms", 0))}ms</td>
         </tr>"""
 
     return f"""<!DOCTYPE html>
@@ -145,7 +146,7 @@ def build_html_report(
 <body>
 <div class="header">
   <h1>AgentIQ Report</h1>
-  <div class="question">{question}</div>
+  <div class="question">{escape(question)}</div>
   <div class="meta">{len(tool_calls)} tool calls · Est. cost: ${cost_usd:.4f}</div>
 </div>
 <main>
@@ -167,7 +168,8 @@ def build_html_report(
 def _md_to_html(md: str) -> str:
     """Minimal markdown → HTML conversion (headings, bold, paragraphs)."""
     import re
-    lines = md.split("\n")
+
+    lines = escape(md).split("\n")
     html_lines = []
     for line in lines:
         line = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", line)
@@ -177,7 +179,7 @@ def _md_to_html(md: str) -> str:
             html_lines.append(f"<h3>{line[4:]}</h3>")
         elif line.startswith("# "):
             html_lines.append(f"<h2>{line[2:]}</h2>")
-        elif line.startswith("- ") or line.startswith("* "):
+        elif line.startswith(("- ", "* ")):
             html_lines.append(f"<li>{line[2:]}</li>")
         elif line.strip() == "":
             html_lines.append("<br>")

@@ -22,8 +22,12 @@ from app.agent.graph import run_agent
 
 def main():
     parser = argparse.ArgumentParser(description="Run an AgentIQ analysis task.")
-    parser.add_argument("--question", required=True, help="Natural language question to analyse.")
-    parser.add_argument("--save-report", action="store_true", help="Save HTML report to data/reports/.")
+    parser.add_argument(
+        "--question", required=True, help="Natural language question to analyse."
+    )
+    parser.add_argument(
+        "--save-report", action="store_true", help="Save HTML report to data/reports/."
+    )
     parser.add_argument("--json", action="store_true", help="Print full state as JSON.")
     args = parser.parse_args()
 
@@ -35,14 +39,14 @@ def main():
 
     print("─" * 60)
     print(f"✅ Answer: {state['final_answer']}")
-    print(f"\n📊 Stats:")
+    print("\n📊 Stats:")
     print(f"   Tool calls:  {len(state['tool_calls'])}")
     print(f"   Tokens:      {state['total_tokens']:,}")
     print(f"   Est. cost:   ${state['total_cost_usd']:.4f}")
     print(f"   Retries:     {state['retry_count']}")
 
     if state["chart_paths"]:
-        print(f"\n📈 Charts saved:")
+        print("\n📈 Charts saved:")
         for p in state["chart_paths"]:
             print(f"   {p}")
 

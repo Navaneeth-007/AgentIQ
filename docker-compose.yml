@@ -8,7 +8,7 @@ services:
     env_file: .env
     volumes:
       - ./data:/app/data        # Persist DB and generated reports
-    command: uvicorn app.main:app --host 0.0.0.0 --port 8000
+    command: python scripts/start_api.py
 
   frontend:
     build: .

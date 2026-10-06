@@ -10,6 +10,8 @@ from __future__ import annotations
 import os
 from typing import Any
 
+from app import config  # noqa: F401
+
 
 class LLMClient:
     """
@@ -27,7 +29,9 @@ class LLMClient:
             return os.getenv("OPENAI_MODEL", "gpt-4o")
         return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
-    def complete(self, prompt: str, system: str | None = None, max_tokens: int = 4096) -> dict[str, Any]:
+    def complete(
+        self, prompt: str, system: str | None = None, max_tokens: int = 4096
+    ) -> dict[str, Any]:
         """
         Send a prompt and return {"content": str, "usage": {"total_tokens": N}}.
         """
@@ -35,7 +39,9 @@ class LLMClient:
             return self._openai_complete(prompt, system, max_tokens)
         return self._anthropic_complete(prompt, system, max_tokens)
 
-    def _anthropic_complete(self, prompt: str, system: str | None, max_tokens: int) -> dict:
+    def _anthropic_complete(
+        self, prompt: str, system: str | None, max_tokens: int
+    ) -> dict:
         try:
             import anthropic
         except ImportError:
@@ -43,7 +49,7 @@ class LLMClient:
 
         api_key = os.getenv("ANTHROPIC_API_KEY")
         if not api_key:
-            raise EnvironmentError("ANTHROPIC_API_KEY not set in .env")
+            raise OSError("ANTHROPIC_API_KEY not set in .env")
 
         client = anthropic.Anthropic(api_key=api_key)
         kwargs: dict[str, Any] = {
@@ -60,7 +66,9 @@ class LLMClient:
 
         return {"content": content, "usage": {"total_tokens": total_tokens}}
 
-    def _openai_complete(self, prompt: str, system: str | None, max_tokens: int) -> dict:
+    def _openai_complete(
+        self, prompt: str, system: str | None, max_tokens: int
+    ) -> dict:
         try:
             from openai import OpenAI
         except ImportError:
@@ -68,7 +76,7 @@ class LLMClient:
 
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            raise EnvironmentError("OPENAI_API_KEY not set in .env")
+            raise OSError("OPENAI_API_KEY not set in .env")
 
         client_kwargs: dict[str, Any] = {
             "api_key": api_key,

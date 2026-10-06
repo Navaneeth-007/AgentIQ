@@ -33,7 +33,7 @@ def run_web_search(query: str, num_results: int = 5) -> dict[str, Any]:
     elif serp_key:
         return _serp_search(query, num_results, serp_key)
     else:
-        raise EnvironmentError(
+        raise OSError(
             "No search API key found. Set TAVILY_API_KEY or SERPAPI_KEY in .env"
         )
 

@@ -10,14 +10,13 @@ Design decisions:
 
 from __future__ import annotations
 
-import json
 import os
 import re
 import sqlite3
 from pathlib import Path
 
 MAX_ROWS = 500
-SAMPLE_DB_PATH = Path("data/sample_db/agentiq.db")
+SAMPLE_DB_PATH = Path(__file__).resolve().parents[2] / "data/sample_db/agentiq.db"
 
 
 def _is_safe_query(query: str) -> bool:
@@ -27,7 +26,16 @@ def _is_safe_query(query: str) -> bool:
     if not re.match(r"^(SELECT|WITH)\b", stripped):
         return False
     # Block dangerous keywords
-    forbidden = ["INSERT", "UPDATE", "DELETE", "DROP", "ALTER", "CREATE", "TRUNCATE", "EXEC"]
+    forbidden = [
+        "INSERT",
+        "UPDATE",
+        "DELETE",
+        "DROP",
+        "ALTER",
+        "CREATE",
+        "TRUNCATE",
+        "EXEC",
+    ]
     for kw in forbidden:
         if re.search(rf"\b{kw}\b", stripped):
             return False
@@ -48,10 +56,10 @@ def inspect_schema(db_path: str = "default") -> dict:
             "Run `python scripts/seed_database.py` to create the sample DB."
         )
 
-    conn = sqlite3.connect(resolved)
+    conn = sqlite3.connect(Path(resolved).resolve().as_uri() + "?mode=ro", uri=True)
     try:
         tables = []
-        for (table_name, create_sql) in conn.execute(
+        for table_name, create_sql in conn.execute(
             "SELECT name, sql FROM sqlite_master "
             "WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
         ):
@@ -102,13 +110,12 @@ def run_sql_query(query: str, db_path: str = "default") -> dict:
             "Run `python scripts/seed_database.py` to create the sample DB."
         )
 
-    conn = sqlite3.connect(resolved)
+    conn = sqlite3.connect(Path(resolved).resolve().as_uri() + "?mode=ro", uri=True)
     conn.row_factory = sqlite3.Row
     try:
         cursor = conn.execute(query)
         rows = _rows_to_json(cursor)
         cols = [d[0] for d in cursor.description] if cursor.description else []
-        total = cursor.rowcount if cursor.rowcount >= 0 else len(rows)
         return {
             "rows": rows,
             "row_count": len(rows),

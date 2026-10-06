@@ -12,16 +12,16 @@ The reflector decides at each step whether to:
 
 from __future__ import annotations
 
-from langgraph.graph import StateGraph, END
+from langgraph.graph import END, StateGraph
 
-from app.agent.state import AgentState, initial_state
 from app.agent.nodes import (
-    planner_node,
     executor_node,
+    planner_node,
     reflector_node,
     reporter_node,
     route_after_reflector,
 )
+from app.agent.state import AgentState, initial_state
 
 
 def build_graph() -> StateGraph:
@@ -70,6 +70,9 @@ def run_agent(question: str, session_id: str) -> AgentState:
     Returns:
         The final AgentState with report_markdown, report_html, and step_logs.
     """
+    from app.guardrails import check_question
+
+    check_question(question)
     state = initial_state(question=question, session_id=session_id)
-    final_state: AgentState = agent_graph.invoke(state)
+    final_state: AgentState = agent_graph.invoke(state, config={"recursion_limit": 100})
     return final_state

@@ -1,178 +1,96 @@
 # AgentIQ — Agentic Data Analyst
 
-A production-grade AI agent that accepts natural language questions, autonomously plans multi-step analyses, queries databases, fetches live data via APIs, generates charts, writes reports, and delivers results — all orchestrated with LangGraph.
+AgentIQ turns business questions into database analyses, charts, and downloadable HTML reports. The Streamlit interface offers a credential-free showcase and a live LangGraph agent with planning, tool execution, reflection, and reporting.
 
-## Why This Exists
+## Run the showcase
 
-DocuMind answers questions from documents. AgentIQ answers questions from *data*. It plans, executes tools in sequence, recovers from failures, and produces a finished analytical report. The same rigour (guardrails, observability, evaluation) — applied to an agentic loop.
-
----
-
-## Architecture
-
-```
-User Question
-      │
-      ▼
-┌─────────────────────────────────────────────────────┐
-│                  LangGraph Agent Loop               │
-│                                                     │
-│  ┌──────────┐    ┌─────────────┐    ┌───────────┐  │
-│  │  Planner │───▶│ Tool Router │───▶│ Executor  │  │
-│  └──────────┘    └─────────────┘    └───────────┘  │
-│        ▲                                   │        │
-│        └──── Reflect / Retry ◀─────────────┘        │
-│                                                     │
-│  Tools available:                                   │
-│    sql_query   → Postgres/SQLite                    │
-│    web_search  → Tavily / SerpAPI                   │
-│    python_repl → pandas + matplotlib charts         │
-│    file_read   → CSV, JSON, Parquet                 │
-│    api_fetch   → weather, finance, news APIs        │
-│    email_send  → SMTP (optional delivery)           │
-└─────────────────────────────────────────────────────┘
-      │
-      ▼
-┌─────────────┐
-│  Reporter   │  Synthesises findings → structured markdown + charts
-└─────────────┘
-      │
-      ▼
-  HTML Report  +  Streamlit UI  +  optional email
-```
-
-### Key Design Decisions
-
-| Decision | Choice | Why |
-|----------|--------|-----|
-| Orchestration | LangGraph | Explicit state graph — each node is inspectable and testable |
-| Reflection | Re-plan node on tool failure | Agent self-corrects rather than halting |
-| Memory | Short-term (scratchpad) + long-term (SQLite) | Agent remembers prior analyses per session |
-| Tool safety | Input validation + sandboxed Python REPL | No arbitrary shell access |
-| Observability | Step-level logging (tool, input, output, latency) | Full trace per query |
-| Evaluation | Task completion rate + tool precision + report quality | Quantified, not vibes |
-
----
-
-## Project Structure
-
-```
-agentiq/
-├── app/
-│   ├── agent/
-│   │   ├── graph.py          # LangGraph state graph definition
-│   │   ├── nodes.py          # Planner, executor, reflector, reporter nodes
-│   │   ├── state.py          # AgentState TypedDict
-│   │   └── prompts.py        # System + node-level prompt templates
-│   ├── tools/
-│   │   ├── sql_tool.py       # Parameterised SQL queries (no injection)
-│   │   ├── search_tool.py    # Web search via Tavily
-│   │   ├── python_repl.py    # Sandboxed pandas/matplotlib execution
-│   │   ├── file_tool.py      # CSV/JSON/Parquet reader
-│   │   ├── api_tool.py       # Weather, finance, news API calls
-│   │   └── email_tool.py     # SMTP report delivery
-│   ├── memory/
-│   │   ├── scratchpad.py     # In-session step memory
-│   │   └── long_term.py      # SQLite persistence across sessions
-│   ├── generation/
-│   │   ├── llm_client.py     # Anthropic / OpenAI wrapper (swappable)
-│   │   └── cost_tracker.py   # Token cost estimation per run
-│   ├── reporting/
-│   │   ├── report_builder.py # Markdown → HTML report with charts
-│   │   └── chart_renderer.py # matplotlib → base64 inline images
-│   ├── guardrails.py         # Input validation, tool call limits, PII detection
-│   └── main.py               # FastAPI entrypoint
-├── frontend/
-│   └── streamlit_app.py      # Chat UI with step-by-step trace viewer
-├── eval/
-│   ├── metrics.py            # Task completion, tool precision, report quality
-│   ├── golden_tasks.json     # Golden evaluation tasks
-│   └── run_eval.py           # Evaluation harness
-├── tests/
-│   ├── test_tools.py
-│   ├── test_agent_graph.py
-│   └── test_guardrails.py
-├── data/
-│   ├── sample_db/            # SQLite sample database (sales, hr, ops data)
-│   └── reports/              # Generated report output directory
-├── scripts/
-│   ├── seed_database.py      # Populate sample SQLite DB
-│   └── run_task.py           # CLI: run a single agent task
-├── .github/workflows/ci.yml
-├── docker-compose.yml
-├── requirements.txt
-├── .env
-└── README.md
-```
-
----
-
-## Quickstart
+Use Python 3.11 or newer. From the project folder:
 
 ```bash
-# 1. Clone and install
-git clone https://github.com/yourhandle/agentiq
-cd agentiq
+python -m venv .venv
+source .venv/bin/activate
 pip install -r requirements.txt
-
-# 2. Configure
-.env
-# Fill in: ANTHROPIC_API_KEY, TAVILY_API_KEY, SMTP credentials (optional)
-
-# 3. Seed sample database
-python scripts/seed_database.py
-
-# 4. Run the API
-uvicorn app.main:app --reload          # http://localhost:8000
-
-# 5. Run the UI
-streamlit run frontend/streamlit_app.py # http://localhost:8501
-
-# 6. Or run a task from CLI
-python scripts/run_task.py --question "Which product category had the highest revenue last quarter, and how does it trend over the past year?"
+python scripts/start_api.py
 ```
 
----
+In another terminal, from the same folder:
 
-## Sample Tasks
-
-```
-"Which product category had the highest revenue last quarter?"
-"Compare our Q3 sales to industry benchmarks — pull the latest data."
-"Find any customers with >3 failed payments in the last 30 days and email me a summary."
-"Generate a monthly sales trend chart for all regions and save it as a report."
-"What's the weather forecast for our top 5 customer cities this week?"
+```bash
+source .venv/bin/activate
+streamlit run frontend/streamlit_app.py
 ```
 
----
+Open http://localhost:8501. Leave **Demo** selected, click a sidebar example, and select **Run analysis**. The startup script creates the sample database only when it is missing. Do not run the seed script against data you want to retain: it recreates the sample tables.
 
-## Evaluation Results
+### Suggested presentation (3 minutes)
 
-| Metric | Score |
-|--------|-------|
-| Task completion rate | — |
-| Tool selection precision | — |
-| Report coherence (LLM-graded 1–5) | — |
-| Avg steps per task | — |
-| Avg cost per task (USD) | — |
+1. Run **Which product category had the highest revenue last quarter?** Explain that relative dates use the latest complete quarter in the dataset.
+2. Open **Execution evidence** to show schema inspection, date inspection, the SQL query, and chart rendering.
+3. Download the HTML report: the chart is embedded, so the file works offline.
+4. Run **Show me monthly sales trends for all regions as a chart.** Compare regional trends.
+5. Select an analysis under **Recent analyses** to demonstrate persistent history.
+6. If provider credentials are configured, switch to **Live AI** and ask a new data question to demonstrate autonomous planning.
 
-*Run `python eval/run_eval.py` and paste your results here.*
+Demo mode performs real calculations on the bundled SQLite database using four predefined analyses. It does not call or simulate an LLM. The dataset contains synthetic 2023–2024 records: 2,000 orders, 200 customers, 24 products, and 80 employees. Delivered orders define revenue. “Lifetime value” in the showcase means observed customer revenue within this dataset. Shipping analyses cover delivered orders with a recorded delay over seven days.
 
----
+## Live AI mode
 
-## Differentiators vs. Basic Agent Demos
+Copy `.env.example` to `.env` if no configuration exists, then fill in the selected provider's key. Existing environment variables take precedence over `.env`. Restart the API after changes.
 
-✅ **LangGraph state graph** — explicit, inspectable, testable  
-✅ **Reflection node** — agent self-corrects on tool failure  
-✅ **Multi-tool orchestration** — SQL + search + Python + APIs in one run  
-✅ **Sandboxed Python REPL** — safe code execution for data analysis  
-✅ **Structured HTML reports** — not just text, real deliverables  
-✅ **Step-level observability** — full trace logged per query  
-✅ **Evaluation harness** — quantified task completion, not vibes  
-✅ **Guardrails** — tool call limits, PII detection, injection prevention  
+- `LLM_PROVIDER=anthropic`: set `ANTHROPIC_API_KEY` and optionally `ANTHROPIC_MODEL`.
+- `LLM_PROVIDER=openai`: set `OPENAI_API_KEY`, `OPENAI_MODEL`, and optionally `OPENAI_BASE_URL` for a compatible endpoint.
+- Optional tools use `TAVILY_API_KEY`, `OPENWEATHER_API_KEY`, `ALPHAVANTAGE_API_KEY`, `NEWSAPI_KEY`, or SMTP settings.
+- `API_BASE` controls the frontend's API address.
 
----
+The live graph runs planner → executor → reflector → executor/replan/reporter. It records tool inputs, failures, latency, estimated token costs, and charts. Failed tools trigger bounded replanning; a 15-call budget ends execution with a best-effort report. Reports and traces persist in `data/history.db`. This history is saved-run retrieval; prior analyses are not automatically supplied as conversational memory.
 
-## Resume Tie-In
+```bash
+python scripts/run_task.py --question "What was delivered revenue by region in 2024?" --save-report
+python -m eval.run_eval --no-llm-grading
+```
 
-*"DocuMind answers questions from documents. AgentIQ answers questions from data — it plans multi-step analyses, selects tools autonomously, recovers from failures, and delivers a finished report. Built with LangGraph, mirroring the agentic patterns I applied at GE Aerospace."*
+Evaluation uses live providers and can incur charges. No live evaluation score is claimed. Token costs are approximate model estimates.
+
+## API
+
+- `GET /health`: process health.
+- `POST /run`: `{ "question": "…", "mode": "demo" | "live" }`; returns an independently generated run ID and analysis summary.
+- `GET /runs`: recent saved runs.
+- `GET /trace/{session_id}`: plan, tool inputs, logs, and report markdown.
+- `GET /report/{session_id}`: self-contained HTML report.
+- `GET /chart/{session_id}/{index}`: chart PNG.
+- http://localhost:8000/docs: interactive API reference.
+
+## Docker
+
+```bash
+cp .env.example .env  # only if no .env already exists
+mkdir -p data
+docker compose up --build
+```
+
+Open http://localhost:8501. The API seeds an empty mounted data folder on startup. `.dockerignore` excludes credentials, local environments, and generated data from the image.
+
+## Verification
+
+```bash
+python -m pytest -q
+ruff check app eval tests frontend scripts
+```
+
+Integration tests run all four demo questions against real sample data and verify persistence, report downloads, chart bytes, input validation, and retry routing. Seed the sample DB before running tests on a fresh checkout. CI performs seeding automatically.
+
+## Project layout
+
+- `app/agent/`: LangGraph state, nodes, and prompts.
+- `app/tools/`: SQL, Python, files, web search, APIs, email.
+- `app/demo.py`: predefined showcase analyses with actual SQL and charts.
+- `app/memory/long_term.py`: persistent run store.
+- `app/reporting/`: HTML export with embedded charts.
+- `frontend/`: Streamlit interface.
+- `scripts/`: startup, sample seeding, live task CLI.
+- `tests/`, `eval/`: regression checks and live evaluation harness.
+
+## Scope and deployment limits
+
+This is a local showcase application. The API has no authentication, and saved history is shared among users of an instance. Restrict access to trusted users. Python execution uses restricted builtins but exposed analysis libraries still have filesystem capabilities; its thread timeout does not kill running code. Run untrusted generated code in an isolated worker before exposing the app publicly. Web/API/email tools require credentials and connectivity and are separate from the offline demo. SQLite queries open databases read-only; external Postgres schema inspection is not yet supported. The interface displays completed execution traces, not streamed progress.

@@ -12,6 +12,10 @@ Usage:
 
 from __future__ import annotations
 
+import sys
+
+sys.path.insert(0, str(__import__("pathlib").Path(__file__).resolve().parent.parent))
+
 import argparse
 import json
 import logging
@@ -21,10 +25,10 @@ from pathlib import Path
 from app.agent.graph import run_agent
 from app.generation.llm_client import LLMClient
 from eval.metrics import (
-    task_completion,
-    tool_precision,
     plan_efficiency,
     report_quality_llm,
+    task_completion,
+    tool_precision,
 )
 
 logging.basicConfig(level=logging.WARNING)
@@ -39,12 +43,14 @@ def run_eval(task_ids: list[str] | None = None, llm_grading: bool = True):
     if task_ids:
         tasks = [t for t in tasks if t["id"] in task_ids]
 
+    if not tasks:
+        raise ValueError("No matching evaluation tasks")
     llm_client = LLMClient() if llm_grading else None
     results = []
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  AgentIQ Evaluation — {len(tasks)} tasks")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     for task in tasks:
         tid = task["id"]
@@ -66,10 +72,11 @@ def run_eval(task_ids: list[str] | None = None, llm_grading: bool = True):
             )
 
             # Check answer contains expected keywords
-            answer_lower = state["final_answer"].lower() + state["report_markdown"].lower()
+            answer_lower = (
+                state["final_answer"].lower() + state["report_markdown"].lower()
+            )
             keyword_hit = all(
-                kw.lower() in answer_lower
-                for kw in task.get("answer_must_contain", [])
+                kw.lower() in answer_lower for kw in task.get("answer_must_contain", [])
             )
 
             result = {
@@ -85,22 +92,29 @@ def run_eval(task_ids: list[str] | None = None, llm_grading: bool = True):
                 "latency_s": round(elapsed, 1),
                 "status": "✅" if completion and keyword_hit else "❌",
             }
-        except Exception as e:
+        except Exception as e:  # noqa: BLE001 — record evaluation failures
             result = {
                 "task_id": tid,
                 "difficulty": task.get("difficulty", ""),
                 "status": "💥",
                 "error": str(e),
-                "completion": 0, "tool_precision": 0, "efficiency": 0,
-                "quality": "n/a", "keyword_hit": False, "steps": 0,
-                "cost_usd": 0, "latency_s": 0,
+                "completion": 0,
+                "tool_precision": 0,
+                "efficiency": 0,
+                "quality": "n/a",
+                "keyword_hit": False,
+                "steps": 0,
+                "cost_usd": 0,
+                "latency_s": 0,
             }
 
         results.append(result)
         status = result["status"]
         steps = result.get("steps", "?")
         cost = result.get("cost_usd", 0)
-        print(f"  {status}  steps={steps}  cost=${cost}  precision={result.get('tool_precision','?')}")
+        print(
+            f"  {status}  steps={steps}  cost=${cost}  precision={result.get('tool_precision', '?')}"
+        )
 
     # Summary
     completed = sum(1 for r in results if r["completion"] == 1.0)
@@ -109,20 +123,24 @@ def run_eval(task_ids: list[str] | None = None, llm_grading: bool = True):
     avg_cost = sum(r["cost_usd"] for r in results) / len(results)
     total_cost = sum(r["cost_usd"] for r in results)
 
-    quality_scores = [r["quality"] for r in results if isinstance(r.get("quality"), float)]
+    quality_scores = [
+        r["quality"] for r in results if isinstance(r.get("quality"), float)
+    ]
     avg_quality = sum(quality_scores) / len(quality_scores) if quality_scores else None
 
-    print(f"\n{'='*70}")
+    print(f"\n{'=' * 70}")
     print(f"  RESULTS SUMMARY ({len(tasks)} tasks)")
-    print(f"{'='*70}")
-    print(f"  Task completion rate:   {completed}/{len(tasks)} ({completed/len(tasks)*100:.0f}%)")
+    print(f"{'=' * 70}")
+    print(
+        f"  Task completion rate:   {completed}/{len(tasks)} ({completed / len(tasks) * 100:.0f}%)"
+    )
     print(f"  Avg tool precision:     {avg_precision:.2f}")
     print(f"  Avg plan efficiency:    {avg_efficiency:.2f}")
     if avg_quality:
         print(f"  Avg report quality:     {avg_quality:.2f} / 1.0")
     print(f"  Avg cost per task:      ${avg_cost:.4f}")
     print(f"  Total eval cost:        ${total_cost:.4f}")
-    print(f"{'='*70}\n")
+    print(f"{'=' * 70}\n")
 
     # Save results
     out_path = Path("eval/last_run_results.json")
@@ -133,8 +151,12 @@ def run_eval(task_ids: list[str] | None = None, llm_grading: bool = True):
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
-    parser.add_argument("--tasks", help="Comma-separated task IDs to run (default: all)")
-    parser.add_argument("--no-llm-grading", action="store_true", help="Skip LLM quality grading")
+    parser.add_argument(
+        "--tasks", help="Comma-separated task IDs to run (default: all)"
+    )
+    parser.add_argument(
+        "--no-llm-grading", action="store_true", help="Skip LLM quality grading"
+    )
     args = parser.parse_args()
 
     task_ids = args.tasks.split(",") if args.tasks else None

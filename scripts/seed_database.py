@@ -21,7 +21,14 @@ DB_PATH = Path("data/sample_db/agentiq.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 REGIONS = ["North", "South", "East", "West", "International"]
-CATEGORIES = ["Electronics", "Clothing", "Home & Garden", "Sports", "Books", "Food & Beverage"]
+CATEGORIES = [
+    "Electronics",
+    "Clothing",
+    "Home & Garden",
+    "Sports",
+    "Books",
+    "Food & Beverage",
+]
 TIERS = ["Bronze", "Silver", "Gold", "Platinum"]
 DEPARTMENTS = ["Engineering", "Sales", "Marketing", "HR", "Finance", "Operations"]
 
@@ -85,42 +92,94 @@ def seed():
     """)
 
     # Customers
-    first_names = ["Alice", "Bob", "Carlos", "Diana", "Ethan", "Fiona", "George", "Hannah",
-                   "Ivan", "Julia", "Kevin", "Laura", "Mike", "Nina", "Oscar", "Priya"]
-    last_names = ["Smith", "Johnson", "Williams", "Brown", "Jones", "Garcia", "Miller", "Davis"]
+    first_names = [
+        "Alice",
+        "Bob",
+        "Carlos",
+        "Diana",
+        "Ethan",
+        "Fiona",
+        "George",
+        "Hannah",
+        "Ivan",
+        "Julia",
+        "Kevin",
+        "Laura",
+        "Mike",
+        "Nina",
+        "Oscar",
+        "Priya",
+    ]
+    last_names = [
+        "Smith",
+        "Johnson",
+        "Williams",
+        "Brown",
+        "Jones",
+        "Garcia",
+        "Miller",
+        "Davis",
+    ]
 
     customers = []
     for i in range(1, 201):
         cid = f"CUST{i:04d}"
         name = f"{random.choice(first_names)} {random.choice(last_names)}"
-        customers.append((
-            cid, name,
-            random.choice(REGIONS),
-            str(random_date(date(2020, 1, 1), date(2023, 12, 31))),
-            random.choice(TIERS),
-        ))
+        customers.append(
+            (
+                cid,
+                name,
+                random.choice(REGIONS),
+                str(random_date(date(2020, 1, 1), date(2023, 12, 31))),
+                random.choice(TIERS),
+            )
+        )
     c.executemany("INSERT INTO customers VALUES (?,?,?,?,?)", customers)
 
     # Products
     product_data = {
-        "Electronics": [("Wireless Headphones", 149.99, 60), ("Smart Watch", 299.99, 120),
-                        ("Bluetooth Speaker", 79.99, 32), ("Tablet Stand", 29.99, 8)],
-        "Clothing": [("Running Shoes", 89.99, 35), ("Winter Jacket", 129.99, 52),
-                     ("Yoga Pants", 49.99, 18), ("Casual T-Shirt", 19.99, 6)],
-        "Home & Garden": [("Coffee Maker", 69.99, 28), ("Air Purifier", 199.99, 80),
-                           ("Garden Hose", 39.99, 12), ("Throw Pillow", 24.99, 8)],
-        "Sports": [("Foam Roller", 34.99, 12), ("Resistance Bands", 19.99, 5),
-                   ("Yoga Mat", 44.99, 18), ("Jump Rope", 14.99, 4)],
-        "Books": [("Data Science Handbook", 49.99, 10), ("Leadership Guide", 24.99, 6),
-                  ("Python Programming", 39.99, 8), ("Business Strategy", 29.99, 7)],
-        "Food & Beverage": [("Protein Powder", 54.99, 22), ("Green Tea (50pk)", 14.99, 4),
-                            ("Coffee Beans (1kg)", 22.99, 8), ("Vitamin Pack", 29.99, 10)],
+        "Electronics": [
+            ("Wireless Headphones", 149.99, 60),
+            ("Smart Watch", 299.99, 120),
+            ("Bluetooth Speaker", 79.99, 32),
+            ("Tablet Stand", 29.99, 8),
+        ],
+        "Clothing": [
+            ("Running Shoes", 89.99, 35),
+            ("Winter Jacket", 129.99, 52),
+            ("Yoga Pants", 49.99, 18),
+            ("Casual T-Shirt", 19.99, 6),
+        ],
+        "Home & Garden": [
+            ("Coffee Maker", 69.99, 28),
+            ("Air Purifier", 199.99, 80),
+            ("Garden Hose", 39.99, 12),
+            ("Throw Pillow", 24.99, 8),
+        ],
+        "Sports": [
+            ("Foam Roller", 34.99, 12),
+            ("Resistance Bands", 19.99, 5),
+            ("Yoga Mat", 44.99, 18),
+            ("Jump Rope", 14.99, 4),
+        ],
+        "Books": [
+            ("Data Science Handbook", 49.99, 10),
+            ("Leadership Guide", 24.99, 6),
+            ("Python Programming", 39.99, 8),
+            ("Business Strategy", 29.99, 7),
+        ],
+        "Food & Beverage": [
+            ("Protein Powder", 54.99, 22),
+            ("Green Tea (50pk)", 14.99, 4),
+            ("Coffee Beans (1kg)", 22.99, 8),
+            ("Vitamin Pack", 29.99, 10),
+        ],
     }
 
     products = []
     for cat, items in product_data.items():
         for i, (name, price, cost) in enumerate(items):
-            pid = f"PROD-{cat[:3].upper()}-{i+1:02d}"
+            pid = f"PROD-{cat[:3].upper()}-{i + 1:02d}"
             products.append((pid, name, cat, price, cost))
     c.executemany("INSERT INTO products VALUES (?,?,?,?,?)", products)
 
@@ -132,17 +191,22 @@ def seed():
         oid = f"ORD{i:06d}"
         cid = random.choice(customers)[0]
         prod = random.choice(products)
-        pid, pname, pcat, unit_price, _ = prod
+        pid, _pname, pcat, unit_price, _ = prod
         qty = random.randint(1, 5)
         amount = round(unit_price * qty * random.uniform(0.9, 1.1), 2)
         region = random.choice(REGIONS)
         odate = random_date(order_start, order_end)
-        delay_days = random.choices([1, 2, 3, 5, 7, 10, 14], weights=[30, 25, 20, 10, 8, 5, 2])[0]
+        delay_days = random.choices(
+            [1, 2, 3, 5, 7, 10, 14], weights=[30, 25, 20, 10, 8, 5, 2]
+        )[0]
         sdate = odate + timedelta(days=delay_days)
-        status = random.choices(["delivered", "delivered", "delivered", "returned", "cancelled"],
-                                weights=[70, 10, 5, 10, 5])[0]
-        orders.append((oid, cid, pid, pcat, amount, qty, region,
-                        str(odate), str(sdate), status))
+        status = random.choices(
+            ["delivered", "delivered", "delivered", "returned", "cancelled"],
+            weights=[70, 10, 5, 10, 5],
+        )[0]
+        orders.append(
+            (oid, cid, pid, pcat, amount, qty, region, str(odate), str(sdate), status)
+        )
     c.executemany("INSERT INTO orders VALUES (?,?,?,?,?,?,?,?,?,?)", orders)
 
     # Employees
@@ -152,8 +216,14 @@ def seed():
         eid = f"EMP{i:04d}"
         dept = random.choice(DEPARTMENTS)
         hdate = random_date(date(2018, 1, 1), date(2024, 6, 30))
-        base = {"Engineering": 120000, "Sales": 85000, "Marketing": 90000,
-                "HR": 75000, "Finance": 95000, "Operations": 80000}[dept]
+        base = {
+            "Engineering": 120000,
+            "Sales": 85000,
+            "Marketing": 90000,
+            "HR": 75000,
+            "Finance": 95000,
+            "Operations": 80000,
+        }[dept]
         salary = round(base * random.uniform(0.85, 1.3))
         is_active = 1 if random.random() > 0.1 else 0
         employees.append((eid, name, dept, str(hdate), salary, is_active))
@@ -162,7 +232,9 @@ def seed():
     conn.commit()
     conn.close()
     print(f"✅ Sample database seeded at {DB_PATH}")
-    print(f"   Customers: 200 | Products: {len(products)} | Orders: 2000 | Employees: {len(employees)}")
+    print(
+        f"   Customers: 200 | Products: {len(products)} | Orders: 2000 | Employees: {len(employees)}"
+    )
 
 
 if __name__ == "__main__":

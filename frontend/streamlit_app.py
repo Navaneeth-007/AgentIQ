@@ -1,141 +1,108 @@
-"""
-AgentIQ Streamlit frontend.
+"""AgentIQ showcase and live analysis interface."""
 
-Features:
-- Natural language question input
-- Live step-by-step trace viewer (planner → executor → reflector → reporter)
-- Inline chart display
-- Downloadable HTML report
-- Cost + token tracking per run
-"""
+import os
 
-from __future__ import annotations
-
-import json
 import requests
 import streamlit as st
 
-API_BASE = "http://localhost:8000"
+API_BASE = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
+st.set_page_config(page_title="AgentIQ · Data Analyst", page_icon="📊", layout="wide")
+QUESTIONS = [
+    "Which product category had the highest revenue last quarter?",
+    "Show me monthly sales trends for all regions as a chart.",
+    "Which customers have the highest lifetime value?",
+    "Find any orders with >7 day shipping delay and summarise them.",
+]
 
-st.set_page_config(
-    page_title="AgentIQ",
-    page_icon="🔍",
-    layout="wide",
-)
 
-# ── Sidebar ───────────────────────────────────────────────────────────────────
+def fetch(path):
+    response = requests.get(f"{API_BASE}{path}", timeout=15)
+    response.raise_for_status()
+    return response
+
+
 with st.sidebar:
-    st.markdown("## AgentIQ")
-    st.markdown("Agentic data analyst — ask questions, get reports.")
+    st.title("AgentIQ")
+    st.caption("From business questions to evidence.")
+    mode = st.radio("Analysis mode", ["Demo", "Live AI"])
+    st.caption(
+        "Demo runs real calculations on synthetic historical data. Live AI uses your configured model and tools."
+    )
     st.divider()
-
-    st.markdown("### Sample questions")
-    samples = [
-        "Which product category had the highest revenue last quarter?",
-        "Show me monthly sales trends for all regions as a chart.",
-        "Which customers have the highest lifetime value?",
-        "Find any orders with >7 day shipping delay and summarise them.",
-        "Compare our Q3 sales to industry benchmarks — search the web.",
-    ]
-    for q in samples:
-        if st.button(q, use_container_width=True, key=q):
+    st.subheader("Try an analysis")
+    for q in QUESTIONS:
+        if st.button(q, use_container_width=True):
             st.session_state["question"] = q
-
     st.divider()
-    st.caption("Powered by Claude + LangGraph")
+    st.subheader("Recent analyses")
+    try:
+        for run in fetch("/runs").json()[:8]:
+            if st.button(
+                run["question"], key=run["session_id"], use_container_width=True
+            ):
+                st.session_state["selected_run"] = run["session_id"]
+    except requests.RequestException:
+        st.caption("Start the API to see saved analyses.")
 
-# ── Main ──────────────────────────────────────────────────────────────────────
-st.title("🔍 AgentIQ")
-st.markdown("Ask a data question. The agent plans, queries, analyses, and reports.")
-
+st.title("Your data. Clear answers.")
+st.markdown("Ask a question, inspect the evidence, and take away a finished report.")
 question = st.text_area(
-    "Your question",
-    value=st.session_state.get("question", ""),
-    height=80,
-    placeholder="Which product category had the highest revenue last quarter?",
+    "What would you like to understand?",
+    key="question",
+    height=85,
+    placeholder=QUESTIONS[0],
 )
+if st.button("Run analysis", type="primary"):
+    if not question.strip():
+        st.warning("Enter a question or select an example.")
+    else:
+        with st.spinner("Querying data and preparing your report…"):
+            try:
+                response = requests.post(
+                    f"{API_BASE}/run",
+                    json={
+                        "question": question,
+                        "mode": "demo" if mode == "Demo" else "live",
+                    },
+                    timeout=300,
+                )
+                if not response.ok:
+                    st.error(response.json().get("detail", "Analysis failed."))
+                else:
+                    st.session_state["selected_run"] = response.json()["session_id"]
+            except requests.RequestException:
+                st.error(
+                    "The analysis service is unavailable or timed out. Check that the API is running."
+                )
 
-run_btn = st.button("Run analysis", type="primary", use_container_width=False)
-
-if run_btn and question.strip():
-    st.divider()
-
-    # Show live progress
-    progress_placeholder = st.empty()
-    trace_placeholder = st.container()
-
-    with st.spinner("Agent is working..."):
-        try:
-            response = requests.post(
-                f"{API_BASE}/run",
-                json={"question": question},
-                timeout=120,
+session_id = st.session_state.get("selected_run")
+if session_id:
+    try:
+        trace = fetch(f"/trace/{session_id}").json()
+        html = fetch(f"/report/{session_id}").text
+        st.subheader(trace["question"])
+        cols = st.columns(3)
+        cols[0].metric("Tool calls", len(trace["tool_calls"]))
+        cols[1].metric("Tokens", f"{trace['total_tokens']:,}")
+        cols[2].metric("Estimated cost", f"${trace['total_cost_usd']:.4f}")
+        report_tab, trace_tab = st.tabs(["Report", "Execution evidence"])
+        with report_tab:
+            st.markdown(trace["report_markdown"])
+            for index in range(trace["chart_count"]):
+                st.image(fetch(f"/chart/{session_id}/{index}").content)
+            st.download_button(
+                "Download HTML report",
+                html,
+                file_name=f"agentiq_{session_id[:8]}.html",
+                mime="text/html",
             )
-            response.raise_for_status()
-            data = response.json()
-        except requests.exceptions.ConnectionError:
-            st.error("❌ Could not connect to AgentIQ API. Start it with: `uvicorn app.main:app --reload`")
-            st.stop()
-        except requests.exceptions.HTTPError as e:
-            st.error(f"❌ API error: {e.response.json().get('detail', str(e))}")
-            st.stop()
-
-    session_id = data["session_id"]
-
-    # Fetch full trace
-    trace_resp = requests.get(f"{API_BASE}/trace/{session_id}", timeout=10)
-    trace = trace_resp.json() if trace_resp.ok else {}
-
-    # ── Answer ────────────────────────────────────────────────────────────────
-    st.success(f"**Answer:** {data['final_answer']}")
-
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Tool calls", data["step_count"])
-    col2.metric("Tokens used", f"{data['total_tokens']:,}")
-    col3.metric("Est. cost", f"${data['total_cost_usd']:.4f}")
-
-    st.divider()
-
-    # ── Report ────────────────────────────────────────────────────────────────
-    tab_report, tab_trace, tab_raw = st.tabs(["📄 Report", "🔍 Execution Trace", "⚙️ Raw State"])
-
-    with tab_report:
-        st.markdown(data["report_markdown"])
-        if data["chart_paths"]:
-            st.markdown("### Charts")
-            for path in data["chart_paths"]:
-                try:
-                    st.image(path)
-                except Exception:
-                    st.caption(f"Chart saved at: {path}")
-
-        st.download_button(
-            "⬇️ Download HTML Report",
-            data=requests.get(f"{API_BASE}/trace/{session_id}").text,
-            file_name=f"agentiq_report_{session_id[:8]}.json",
-            mime="application/json",
-        )
-
-    with tab_trace:
-        if trace.get("plan"):
-            st.markdown("### Plan")
+        with trace_tab:
             for step in trace["plan"]:
-                status_icon = {"done": "✅", "failed": "❌", "pending": "⏳", "running": "🔄"}.get(
-                    step.get("status", ""), "•"
-                )
                 st.markdown(
-                    f"{status_icon} **Step {step['step_id']}** — {step['description']}  "
-                    f"*({step['tool']})*"
+                    f"**{step['step_id']}. {step['description']}** · {step['status']}"
                 )
-
-        if trace.get("step_logs"):
-            st.markdown("### Step logs")
-            for log in trace["step_logs"]:
-                with st.expander(f"{log.get('node', '').upper()} — {log.get('latency_ms', 0):.0f}ms"):
-                    st.json(log)
-
-    with tab_raw:
-        st.json(trace)
-
-elif run_btn:
-    st.warning("Please enter a question.")
+            for call in trace["tool_calls"]:
+                with st.expander(f"{call['tool_name']} · {call['latency_ms']:.0f} ms"):
+                    st.json(call)
+    except requests.RequestException:
+        st.error("Could not load the saved analysis. Check the API connection.")

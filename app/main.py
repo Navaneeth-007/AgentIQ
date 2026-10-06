@@ -14,16 +14,23 @@ import logging
 import time
 import uuid
 from contextlib import asynccontextmanager
-from typing import Any
+from pathlib import Path
+from typing import Any, Literal
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import FileResponse, HTMLResponse
 from pydantic import BaseModel
 
 from app.agent.graph import run_agent
-from app.guardrails import check_question, check_pii, GuardrailViolation
+from app.config import ROOT
+from app.demo import run_demo
+from app.guardrails import GuardrailViolation, check_pii, check_question
+from app.memory.long_term import get_run, list_runs, save_run
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s")
+logging.basicConfig(
+    level=logging.INFO, format="%(asctime)s %(levelname)s %(name)s — %(message)s"
+)
 logger = logging.getLogger(__name__)
 
 # In-memory trace store (swap for Redis/Postgres in production)
@@ -50,6 +57,7 @@ app.add_middleware(
 class RunRequest(BaseModel):
     question: str
     session_id: str | None = None
+    mode: Literal["live", "demo"] = "live"
 
 
 class RunResponse(BaseModel):
@@ -65,7 +73,7 @@ class RunResponse(BaseModel):
 
 @app.post("/run", response_model=RunResponse)
 async def run_task(req: RunRequest):
-    session_id = req.session_id or str(uuid.uuid4())
+    session_id = str(uuid.uuid4())
 
     # Guardrails
     try:
@@ -80,10 +88,12 @@ async def run_task(req: RunRequest):
     t0 = time.time()
     try:
         final_state = await asyncio.to_thread(
-            run_agent,
+            run_demo if req.mode == "demo" else run_agent,
             question=req.question,
             session_id=session_id,
         )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         logger.exception("Agent run failed for session %s", session_id)
         error_text = str(e)
@@ -98,7 +108,7 @@ async def run_task(req: RunRequest):
     latency_ms = (time.time() - t0) * 1000
 
     # Store trace
-    trace_store[session_id] = final_state
+    save_run(final_state)
 
     return RunResponse(
         session_id=session_id,
@@ -114,13 +124,15 @@ async def run_task(req: RunRequest):
 
 @app.get("/trace/{session_id}")
 async def get_trace(session_id: str):
-    if session_id not in trace_store:
+    state = get_run(session_id)
+    if state is None:
         raise HTTPException(status_code=404, detail="Session not found")
-    state = trace_store[session_id]
     return {
         "session_id": session_id,
         "question": state["question"],
         "plan": state["plan"],
+        "report_markdown": state["report_markdown"],
+        "chart_count": len(state["chart_paths"]),
         "tool_calls": [
             {k: v for k, v in tc.items() if k != "tool_output"}
             for tc in state["tool_calls"]
@@ -134,3 +146,30 @@ async def get_trace(session_id: str):
 @app.get("/health")
 async def health():
     return {"status": "ok", "version": "1.0.0"}
+
+
+@app.get("/runs")
+def history():
+    return list_runs()
+
+
+@app.get("/report/{session_id}", response_class=HTMLResponse)
+def report(session_id: str):
+    state = get_run(session_id)
+    if not state:
+        raise HTTPException(status_code=404, detail="Session not found")
+    return HTMLResponse(state["report_html"])
+
+
+@app.get("/chart/{session_id}/{index}")
+def chart(session_id: str, index: int):
+    state = get_run(session_id)
+    if not state or index < 0 or index >= len(state["chart_paths"]):
+        raise HTTPException(status_code=404, detail="Chart not found")
+    path = Path(state["chart_paths"][index]).resolve()
+    if (
+        not path.is_relative_to((ROOT / "data" / "reports").resolve())
+        or not path.is_file()
+    ):
+        raise HTTPException(status_code=404, detail="Chart not found")
+    return FileResponse(path, media_type="image/png")

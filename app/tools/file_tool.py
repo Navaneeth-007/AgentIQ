@@ -22,7 +22,9 @@ def read_file(path: str) -> dict:
     if not p.exists():
         raise FileNotFoundError(f"File not found: {path}")
     if p.suffix not in ALLOWED_EXTENSIONS:
-        raise ValueError(f"Unsupported file type: {p.suffix}. Allowed: {ALLOWED_EXTENSIONS}")
+        raise ValueError(
+            f"Unsupported file type: {p.suffix}. Allowed: {ALLOWED_EXTENSIONS}"
+        )
 
     try:
         import pandas as pd

@@ -16,17 +16,23 @@ import logging
 import time
 from typing import Any
 
+from app.agent.prompts import (
+    executor_prompt,
+    planner_prompt,
+    reflector_prompt,
+    reporter_prompt,
+)
 from app.agent.state import AgentState, PlanStep, ToolCall
-from app.agent.prompts import planner_prompt, executor_prompt, reflector_prompt, reporter_prompt
-from app.generation.llm_client import LLMClient
 from app.generation.cost_tracker import estimate_cost
+from app.generation.llm_client import LLMClient
+from app.guardrails import MAX_TOOL_CALLS, check_tool_budget
 from app.reporting.report_builder import build_html_report
-from app.tools.sql_tool import inspect_schema, run_sql_query
-from app.tools.search_tool import run_web_search
-from app.tools.python_repl import run_python_repl
-from app.tools.file_tool import read_file
 from app.tools.api_tool import fetch_api
 from app.tools.email_tool import send_email
+from app.tools.file_tool import read_file
+from app.tools.python_repl import run_python_repl
+from app.tools.search_tool import run_web_search
+from app.tools.sql_tool import inspect_schema, run_sql_query
 
 logger = logging.getLogger(__name__)
 
@@ -41,7 +47,9 @@ TOOL_REGISTRY = {
 }
 
 
-def _call_llm(client: LLMClient, prompt: str, state: AgentState) -> tuple[str, int, float]:
+def _call_llm(
+    client: LLMClient, prompt: str, state: AgentState
+) -> tuple[str, int, float]:
     """Call LLM, return (text, tokens_used, cost_usd)."""
     response = client.complete(prompt)
     tokens = response.get("usage", {}).get("total_tokens", 0)
@@ -73,6 +81,7 @@ def _parse_json(text: str) -> dict[str, Any]:
 
 
 # ── Node: Planner ─────────────────────────────────────────────────────────────
+
 
 def planner_node(state: AgentState) -> dict:
     """
@@ -120,16 +129,20 @@ def planner_node(state: AgentState) -> dict:
         "current_step": 0,
         "total_tokens": state["total_tokens"] + tokens,
         "total_cost_usd": state["total_cost_usd"] + cost,
-        "step_logs": state["step_logs"] + [{
-            "node": "planner",
-            "latency_ms": latency,
-            "tokens": tokens,
-            "error": planner_error,
-        }],
+        "step_logs": state["step_logs"]
+        + [
+            {
+                "node": "planner",
+                "latency_ms": latency,
+                "tokens": tokens,
+                "error": planner_error,
+            }
+        ],
     }
 
 
 # ── Node: Executor ────────────────────────────────────────────────────────────
+
 
 def executor_node(state: AgentState) -> dict:
     """
@@ -140,6 +153,7 @@ def executor_node(state: AgentState) -> dict:
     3. Append result to scratchpad.
     4. Advance current_step.
     """
+    check_tool_budget(state["tool_calls"])
     client = LLMClient()
     step_idx = state["current_step"]
     if step_idx >= len(state["plan"]):
@@ -149,7 +163,9 @@ def executor_node(state: AgentState) -> dict:
         )
     step = state["plan"][step_idx]
 
-    logger.info("Executing step %d: %s (%s)", step_idx + 1, step["description"], step["tool"])
+    logger.info(
+        "Executing step %d: %s (%s)", step_idx + 1, step["description"], step["tool"]
+    )
 
     # Ask LLM for exact tool input
     prompt = executor_prompt(step["description"], step["tool"], state["scratchpad"])
@@ -186,7 +202,9 @@ def executor_node(state: AgentState) -> dict:
             t1 = time.time()
             try:
                 tool_output = tool_fn(**tool_input)
-            except Exception as exc:
+                if isinstance(tool_output, dict) and tool_output.get("error"):
+                    error = str(tool_output["error"])
+            except Exception as exc:  # noqa: BLE001 — isolate tool failures
                 error = str(exc)
                 logger.error("Tool %s failed: %s", step["tool"], exc)
             latency += (time.time() - t1) * 1000
@@ -209,8 +227,8 @@ def executor_node(state: AgentState) -> dict:
         f"\n## Step {step_idx + 1}: {step['description']}\n"
         f"Tool: {step['tool']}\n"
         f"Output: {json.dumps(tool_output, default=str)[:2000]}\n"
-        if not error else
-        f"\n## Step {step_idx + 1}: {step['description']} [FAILED]\n"
+        if not error
+        else f"\n## Step {step_idx + 1}: {step['description']} [FAILED]\n"
         f"Error: {error}\n"
     )
 
@@ -227,18 +245,22 @@ def executor_node(state: AgentState) -> dict:
         "chart_paths": state["chart_paths"] + new_charts,
         "total_tokens": state["total_tokens"] + tokens,
         "total_cost_usd": state["total_cost_usd"] + cost,
-        "step_logs": state["step_logs"] + [{
-            "node": "executor",
-            "step": step_idx + 1,
-            "tool": step["tool"],
-            "latency_ms": latency,
-            "tokens": tokens,
-            "error": error,
-        }],
+        "step_logs": state["step_logs"]
+        + [
+            {
+                "node": "executor",
+                "step": step_idx + 1,
+                "tool": step["tool"],
+                "latency_ms": latency,
+                "tokens": tokens,
+                "error": error,
+            }
+        ],
     }
 
 
 # ── Node: Reflector ───────────────────────────────────────────────────────────
+
 
 def reflector_node(state: AgentState) -> dict:
     """
@@ -266,6 +288,8 @@ def reflector_node(state: AgentState) -> dict:
         next_action = "continue"
 
     retry_count = state["retry_count"]
+    if state["tool_calls"] and state["tool_calls"][-1].get("error"):
+        next_action = "replan"
     if next_action == "replan":
         retry_count += 1
 
@@ -274,23 +298,29 @@ def reflector_node(state: AgentState) -> dict:
         "retry_count": retry_count,
         "total_tokens": state["total_tokens"] + tokens,
         "total_cost_usd": state["total_cost_usd"] + cost,
-        "step_logs": state["step_logs"] + [{
-            "node": "reflector",
-            "next_action": next_action,
-            "latency_ms": latency,
-            "tokens": tokens,
-        }],
+        "step_logs": state["step_logs"]
+        + [
+            {
+                "node": "reflector",
+                "next_action": next_action,
+                "latency_ms": latency,
+                "tokens": tokens,
+            }
+        ],
     }
 
 
 # ── Node: Reporter ────────────────────────────────────────────────────────────
+
 
 def reporter_node(state: AgentState) -> dict:
     """
     Synthesise all findings into a structured markdown report and HTML version.
     """
     client = LLMClient()
-    prompt = reporter_prompt(state["question"], state["scratchpad"], state["chart_paths"])
+    prompt = reporter_prompt(
+        state["question"], state["scratchpad"], state["chart_paths"]
+    )
 
     t0 = time.time()
     raw, tokens, cost = _call_llm(client, prompt, state)
@@ -306,7 +336,11 @@ def reporter_node(state: AgentState) -> dict:
     )
 
     # Extract first paragraph as the one-line answer
-    lines = [l.strip() for l in report_markdown.split("\n") if l.strip() and not l.startswith("#")]
+    lines = [
+        l.strip()
+        for l in report_markdown.split("\n")
+        if l.strip() and not l.startswith("#")
+    ]
     final_answer = lines[0] if lines else "Analysis complete. See full report."
 
     return {
@@ -315,15 +349,19 @@ def reporter_node(state: AgentState) -> dict:
         "final_answer": final_answer,
         "total_tokens": state["total_tokens"] + tokens,
         "total_cost_usd": state["total_cost_usd"] + cost,
-        "step_logs": state["step_logs"] + [{
-            "node": "reporter",
-            "latency_ms": latency,
-            "tokens": tokens,
-        }],
+        "step_logs": state["step_logs"]
+        + [
+            {
+                "node": "reporter",
+                "latency_ms": latency,
+                "tokens": tokens,
+            }
+        ],
     }
 
 
 # ── Routing logic (used by graph.py) ─────────────────────────────────────────
+
 
 def route_after_executor(state: AgentState) -> str:
     """After executing a step: go to reflector."""
@@ -338,13 +376,15 @@ def route_after_reflector(state: AgentState) -> str:
     - If more steps remain → executor
     - If all steps done → reporter
     """
+    if len(state["tool_calls"]) >= MAX_TOOL_CALLS:
+        return "reporter"
     if state["retry_count"] >= state["max_retries"]:
         logger.warning("Max retries reached, forcing reporter.")
         return "reporter"
 
     # Tool failures need a fresh plan; continuing with a plan built on missing
     # data produces reports that look complete but contain no answer.
-    if any(tool_call.get("error") for tool_call in state["tool_calls"]):
+    if state["tool_calls"] and state["tool_calls"][-1].get("error"):
         return "planner"
 
     # Check reflection result from last step log

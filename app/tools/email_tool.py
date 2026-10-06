@@ -8,10 +8,10 @@ from __future__ import annotations
 
 import os
 import smtplib
+from email import encoders
+from email.mime.base import MIMEBase
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
-from email.mime.base import MIMEBase
-from email import encoders
 from pathlib import Path
 
 
@@ -40,7 +40,7 @@ def send_email(
     from_addr = os.getenv("EMAIL_FROM", smtp_user)
 
     if not smtp_user or not smtp_password:
-        raise EnvironmentError(
+        raise OSError(
             "SMTP_USER and SMTP_PASSWORD must be set in .env to use email delivery."
         )
 
@@ -56,14 +56,16 @@ def send_email(
         msg.attach(MIMEText(body, "plain"))
 
     # Attach files
-    for path_str in (attachments or []):
+    for path_str in attachments or []:
         path = Path(path_str)
         if path.exists():
             with open(path, "rb") as f:
                 part = MIMEBase("application", "octet-stream")
                 part.set_payload(f.read())
                 encoders.encode_base64(part)
-                part.add_header("Content-Disposition", f"attachment; filename={path.name}")
+                part.add_header(
+                    "Content-Disposition", f"attachment; filename={path.name}"
+                )
                 msg.attach(part)
 
     with smtplib.SMTP(smtp_host, smtp_port) as server:

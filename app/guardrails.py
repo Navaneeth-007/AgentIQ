@@ -12,17 +12,16 @@ from __future__ import annotations
 
 import re
 
-
 MAX_QUESTION_LENGTH = 2000
 MAX_TOOL_CALLS = 15  # Hard ceiling on tool calls per run
 
 
 class GuardrailViolation(Exception):
     """Raised when a guardrail check fails."""
-    pass
 
 
 # ── Input checks ──────────────────────────────────────────────────────────────
+
 
 def check_question(question: str) -> None:
     """Validate the user's question before starting the agent."""
@@ -85,6 +84,7 @@ def check_pii(text: str) -> list[str]:
 
 # ── Runtime checks ────────────────────────────────────────────────────────────
 
+
 def check_tool_budget(tool_calls: list) -> None:
     """Raise if the agent has exceeded the max tool call budget."""
     if len(tool_calls) >= MAX_TOOL_CALLS:
@@ -96,11 +96,20 @@ def check_tool_budget(tool_calls: list) -> None:
 
 def check_sql_output(rows: list[dict]) -> None:
     """Warn if SQL results may contain PII columns."""
-    pii_column_names = {"email", "ssn", "phone", "credit_card", "password", "dob", "date_of_birth"}
-    columns = {str(k).lower() for row in rows[:1] for k in row.keys()}
+    pii_column_names = {
+        "email",
+        "ssn",
+        "phone",
+        "credit_card",
+        "password",
+        "dob",
+        "date_of_birth",
+    }
+    columns = {str(k).lower() for row in rows[:1] for k in row}
     pii_found = columns & pii_column_names
     if pii_found:
         import logging
+
         logging.getLogger(__name__).warning(
             "SQL result contains potentially sensitive columns: %s", pii_found
         )

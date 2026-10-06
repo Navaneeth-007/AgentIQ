@@ -1,5 +1,9 @@
 """
-Sandboxed Python REPL for data analysis.
+Restricted Python REPL for trusted local data analysis.
+
+This is not a security boundary: exposed libraries can access files and a
+thread timeout cannot terminate executing code. Use only in a trusted local
+demo; isolate execution in a separate service before public deployment.
 
 Design decisions:
 - Runs in a restricted exec() context — no shell access, no file system writes
@@ -17,10 +21,8 @@ what was pre-coded as a tool.
 from __future__ import annotations
 
 import io
-import os
-import sys
-import time
 import threading
+import time
 import traceback
 import uuid
 from contextlib import redirect_stdout
@@ -34,13 +36,30 @@ EXECUTION_TIMEOUT_SECONDS = 30
 # Allowed modules in the sandbox
 SAFE_BUILTINS = {
     "print": print,
-    "len": len, "range": range, "enumerate": enumerate, "zip": zip,
-    "list": list, "dict": dict, "set": set, "tuple": tuple,
-    "str": str, "int": int, "float": float, "bool": bool,
-    "min": min, "max": max, "sum": sum, "abs": abs, "round": round,
-    "sorted": sorted, "reversed": reversed,
-    "isinstance": isinstance, "type": type,
-    "True": True, "False": False, "None": None,
+    "len": len,
+    "range": range,
+    "enumerate": enumerate,
+    "zip": zip,
+    "list": list,
+    "dict": dict,
+    "set": set,
+    "tuple": tuple,
+    "str": str,
+    "int": int,
+    "float": float,
+    "bool": bool,
+    "min": min,
+    "max": max,
+    "sum": sum,
+    "abs": abs,
+    "round": round,
+    "sorted": sorted,
+    "reversed": reversed,
+    "isinstance": isinstance,
+    "type": type,
+    "True": True,
+    "False": False,
+    "None": None,
 }
 
 
@@ -67,23 +86,33 @@ def run_python_repl(code: str) -> dict:
     # Pre-import common data science libs into the sandbox namespace
     sandbox_globals: dict = {"__builtins__": SAFE_BUILTINS}
     try:
-        import pandas as pd
-        import numpy as np
         import matplotlib
-        matplotlib.use("Agg")  # Non-interactive backend — must set before importing pyplot
+        import numpy as np
+        import pandas as pd
+
+        matplotlib.use(
+            "Agg"
+        )  # Non-interactive backend — must set before importing pyplot
         import matplotlib.pyplot as plt
-        sandbox_globals.update({
-            "pd": pd,
-            "np": np,
-            "plt": plt,
-            "chart_path": chart_path,  # Pre-set so agent can just: plt.savefig(chart_path)
-        })
+
+        sandbox_globals.update(
+            {
+                "pd": pd,
+                "np": np,
+                "plt": plt,
+                "chart_path": chart_path,  # Pre-set so agent can just: plt.savefig(chart_path)
+            }
+        )
     except ImportError as e:
-        return {"stdout": "", "error": f"Import failed: {e}", "chart_paths": [], "execution_time_ms": 0}
+        return {
+            "stdout": "",
+            "error": f"Import failed: {e}",
+            "chart_paths": [],
+            "execution_time_ms": 0,
+        }
 
     stdout_capture = io.StringIO()
     error: str | None = None
-    result: dict = {}
     timed_out = False
 
     def _execute():
@@ -91,7 +120,7 @@ def run_python_repl(code: str) -> dict:
         try:
             with redirect_stdout(stdout_capture):
                 exec(code, sandbox_globals)  # noqa: S102
-        except Exception:
+        except Exception:  # noqa: BLE001 — capture analysis errors
             error = traceback.format_exc()
 
     t0 = time.time()
@@ -113,9 +142,10 @@ def run_python_repl(code: str) -> dict:
     # Close matplotlib figure to free memory
     try:
         import matplotlib.pyplot as plt
+
         plt.close("all")
-    except Exception:
-        pass
+    except Exception:  # noqa: BLE001 — capture analysis errors
+        traceback.print_exc()
 
     return {
         "stdout": stdout_capture.getvalue(),

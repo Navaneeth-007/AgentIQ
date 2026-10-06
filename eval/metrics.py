@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import json
 import logging
-from typing import Any
 
 logger = logging.getLogger(__name__)
 
@@ -81,9 +80,13 @@ Output ONLY a JSON object: {{"score": <1-5>, "reason": "<one sentence>"}}"""
     try:
         response = llm_client.complete(prompt, max_tokens=200)
         parsed = json.loads(
-            response["content"].strip().removeprefix("```json").removeprefix("```").removesuffix("```")
+            response["content"]
+            .strip()
+            .removeprefix("```json")
+            .removeprefix("```")
+            .removesuffix("```")
         )
         return parsed.get("score", 3) / 5.0
-    except Exception as e:
+    except Exception as e:  # noqa: BLE001 — record evaluation failures
         logger.warning("LLM quality grading failed: %s", e)
         return 0.6  # Default to neutral on failure
