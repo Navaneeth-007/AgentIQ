@@ -32,12 +32,6 @@ The final sample runs used approximately 18,201 tokens in total. Actual quotas,
 latency, and model availability depend on the provider account. The reporter and
 default reflection checks make no model requests.
 
-Optional service checks:
-
-- Tavily: current credential rejected; disabled locally.
-- OpenWeather: HTTP 401; disabled locally.
-- Alpha Vantage: an IBM stock quote was returned.
-- NewsAPI: HTTP 401; disabled locally.
-- SMTP: no message sent; delivery is unverified.
-
-See [deployment and credential guide](DEPLOYMENT.md) for setup and remaining inputs.
+Optional adapters are separate from the core validation. External search, weather,
+news, and email are disabled on the hosted showcase. Email delivery has not been
+tested. See [configuration](CONFIGURATION.md) for credentials and enable flags.

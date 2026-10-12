@@ -94,24 +94,22 @@ The API accepts one analysis at a time. A second analysis receives a readable
 busy response. Groq's free token limits can cause retry delays; the frontend waits
 up to 10 minutes. Check the provider's quota when requests stop completing.
 
-## Optional features and credential checks
+## Optional integrations
 
-These checks were performed on October 12, 2026. Populated environment variables
-are not proof that a credential is valid.
+Core database and CSV analysis needs only the selected model provider. The
+Render Blueprint disables external enrichment and email until configured.
 
-| Feature | Configuration | Check result / action |
+| Feature | Configuration | Supported behavior |
 | --- | --- | --- |
-| Web search and external benchmarks | `TAVILY_API_KEY`, or `SERPAPI_KEY` as an alternative | Tavily rejected the current key. Replace it; then set `ENABLE_WEB_SEARCH=true`. |
-| Weather enrichment | `OPENWEATHER_API_KEY` | Current key returned HTTP 401. Replace it; then set `ENABLE_WEATHER=true`. Supports 1–5 days of forecast for a city. |
-| Stock quotes | `ALPHAVANTAGE_API_KEY` | Returned an IBM quote. Supports quotes only; other financial metrics are not implemented. |
-| News enrichment | `NEWSAPI_KEY` | Current key returned HTTP 401. Replace it; then set `ENABLE_NEWS=true`. NewsAPI's free Developer plan is for development/testing, not deployment. |
-| Email delivery | `SMTP_HOST`, `SMTP_PORT`, `SMTP_USER`, `SMTP_PASSWORD`, optional `EMAIL_FROM` | Settings exist, but delivery has not been tested. Use your provider's SMTP credential or app password. A test requires an approved recipient. |
+| Web search | `TAVILY_API_KEY` or `SERPAPI_KEY`, `ENABLE_WEB_SEARCH=true` | External information and benchmarks. |
+| Weather | `OPENWEATHER_API_KEY`, `ENABLE_WEATHER=true` | City forecast for 1–5 days. |
+| Finance | `ALPHAVANTAGE_API_KEY`, `ENABLE_FINANCE=true` | Stock quotes only. |
+| News | `NEWSAPI_KEY`, `ENABLE_NEWS=true` | Topic-based articles. NewsAPI's free Developer plan is for development/testing, not deployment. |
+| Email | SMTP settings, `ENABLE_EMAIL=true` | Delivery when explicitly requested; unverified in project validation. |
 
-Rejected search, weather, and news integrations have been disabled in the local
-`.env`. No email was sent. After correcting credentials and flags, restart the
-API. The interface's feature list reflects configuration and enablement, not a
-live credential check. None of these optional services are required for core
-data analysis.
+Validate credentials independently before enabling a feature and restart the
+service after configuration changes. The interface reflects configured
+availability, not a live check. See [configuration](CONFIGURATION.md) for details.
 
 Provider references: [Groq limits](https://console.groq.com/docs/rate-limits),
 [Groq models](https://console.groq.com/docs/models),
