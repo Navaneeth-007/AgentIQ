@@ -2,19 +2,25 @@
 
 import json
 import sqlite3
+from contextlib import contextmanager
 
 from app.config import ROOT
 
 DB = ROOT / "data" / "history.db"
 
 
+@contextmanager
 def connection():
     DB.parent.mkdir(parents=True, exist_ok=True)
     conn = sqlite3.connect(DB)
     conn.execute(
         "CREATE TABLE IF NOT EXISTS runs (id TEXT PRIMARY KEY, created TEXT DEFAULT CURRENT_TIMESTAMP, state TEXT NOT NULL)"
     )
-    return conn
+    try:
+        with conn:
+            yield conn
+    finally:
+        conn.close()
 
 
 def save_run(state):

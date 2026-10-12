@@ -59,7 +59,7 @@ def build_graph() -> StateGraph:
 agent_graph = build_graph()
 
 
-def run_agent(question: str, session_id: str) -> AgentState:
+def run_agent(question: str, session_id: str, db_path: str = "default") -> AgentState:
     """
     Run the agent on a question and return the final state.
 
@@ -73,6 +73,6 @@ def run_agent(question: str, session_id: str) -> AgentState:
     from app.guardrails import check_question
 
     check_question(question)
-    state = initial_state(question=question, session_id=session_id)
+    state = initial_state(question=question, session_id=session_id, db_path=db_path)
     final_state: AgentState = agent_graph.invoke(state, config={"recursion_limit": 100})
     return final_state

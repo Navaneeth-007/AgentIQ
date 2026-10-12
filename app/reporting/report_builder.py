@@ -171,7 +171,41 @@ def _md_to_html(md: str) -> str:
 
     lines = escape(md).split("\n")
     html_lines = []
+    in_code = False
+    in_table = False
     for line in lines:
+        if line.startswith("```"):
+            if in_table:
+                html_lines.append("</tbody></table>")
+                in_table = False
+            html_lines.append("</code></pre>" if in_code else "<pre><code>")
+            in_code = not in_code
+            continue
+        if in_code:
+            html_lines.append(line)
+            continue
+        if line.startswith("|") and line.endswith("|"):
+            cells = [
+                c.strip().replace("\\|", "|")
+                for c in re.split(r"(?<!\\)\|", line)[1:-1]
+            ]
+            if all(re.fullmatch(r":?-+:?", cell) for cell in cells):
+                continue
+            if not in_table:
+                html_lines.append(
+                    "<table><thead><tr>"
+                    + "".join(f"<th>{cell}</th>" for cell in cells)
+                    + "</tr></thead><tbody>"
+                )
+                in_table = True
+            else:
+                html_lines.append(
+                    "<tr>" + "".join(f"<td>{cell}</td>" for cell in cells) + "</tr>"
+                )
+            continue
+        if in_table:
+            html_lines.append("</tbody></table>")
+            in_table = False
         line = re.sub(r"\*\*(.*?)\*\*", r"<strong>\1</strong>", line)
         if line.startswith("## "):
             html_lines.append(f"<h2>{line[3:]}</h2>")
@@ -185,4 +219,8 @@ def _md_to_html(md: str) -> str:
             html_lines.append("<br>")
         else:
             html_lines.append(f"<p>{line}</p>")
+    if in_table:
+        html_lines.append("</tbody></table>")
+    if in_code:
+        html_lines.append("</code></pre>")
     return "\n".join(html_lines)

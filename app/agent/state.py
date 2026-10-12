@@ -32,6 +32,7 @@ class AgentState(TypedDict):
     # ── Input ────────────────────────────────────────────────────────────────
     question: str  # The user's natural-language question
     session_id: str  # Unique session identifier
+    db_path: str
 
     # ── Plan ─────────────────────────────────────────────────────────────────
     plan: list[PlanStep]  # Ordered steps the planner decided on
@@ -58,11 +59,14 @@ class AgentState(TypedDict):
     step_logs: list[dict[str, Any]]  # Per-step timing + metadata
 
 
-def initial_state(question: str, session_id: str) -> AgentState:
+def initial_state(
+    question: str, session_id: str, db_path: str = "default"
+) -> AgentState:
     """Return a clean initial state for a new agent run."""
     return AgentState(
         question=question,
         session_id=session_id,
+        db_path=db_path,
         plan=[],
         current_step=0,
         tool_calls=[],

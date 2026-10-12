@@ -23,12 +23,10 @@ jobs:
           pip install ruff pytest
 
       - name: Lint (ruff)
-        run: ruff check app/ eval/ tests/
+        run: ruff check app eval tests frontend scripts
 
       - name: Seed test database
         run: python scripts/seed_database.py
 
       - name: Run tests
-        env:
-          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: pytest tests/ -v --tb=short

@@ -10,13 +10,32 @@ Design decisions:
 
 from __future__ import annotations
 
+import calendar
 import os
 import re
 import sqlite3
+from datetime import date
 from pathlib import Path
 
 MAX_ROWS = 500
 SAMPLE_DB_PATH = Path(__file__).resolve().parents[2] / "data/sample_db/agentiq.db"
+
+
+def complete_quarter(latest: str) -> dict[str, str]:
+    """Include the latest quarter when data reaches its final calendar day."""
+    last = date.fromisoformat(latest[:10])
+    start_month = ((last.month - 1) // 3) * 3 + 1
+    end_month = start_month + 2
+    end = date(last.year, end_month, calendar.monthrange(last.year, end_month)[1])
+    year = last.year
+    if last < end:
+        start_month -= 3
+        if start_month < 1:
+            year -= 1
+            start_month = 10
+        end_month = start_month + 2
+        end = date(year, end_month, calendar.monthrange(year, end_month)[1])
+    return {"start": date(year, start_month, 1).isoformat(), "end": end.isoformat()}
 
 
 def _is_safe_query(query: str) -> bool:
@@ -68,7 +87,19 @@ def inspect_schema(db_path: str = "default") -> dict:
                 for row in conn.execute(f'PRAGMA table_info("{table_name}")')
             ]
             tables.append({"name": table_name, "sql": create_sql, "columns": columns})
-        return {"tables": tables}
+        result = {"tables": tables}
+        if any(
+            t["name"] == "orders"
+            and any(c["name"] == "order_date" for c in t["columns"])
+            for t in tables
+        ):
+            latest = conn.execute("SELECT MAX(order_date) FROM orders").fetchone()[0]
+            if latest:
+                result["date_context"] = {
+                    "latest_order_date": latest,
+                    "latest_complete_quarter": complete_quarter(latest),
+                }
+        return result
     finally:
         conn.close()
 

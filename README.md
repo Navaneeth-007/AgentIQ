@@ -20,7 +20,7 @@ source .venv/bin/activate
 streamlit run frontend/streamlit_app.py
 ```
 
-Open http://localhost:8501. Leave **Demo** selected, click a sidebar example, and select **Run analysis**. The startup script creates the sample database only when it is missing. Do not run the seed script against data you want to retain: it recreates the sample tables.
+Open http://localhost:8501. The interface opens directly; server authentication is automatic. Leave **Demo** selected, click a sidebar example, and select **Run analysis**. The startup script creates the sample database only when it is missing. Do not run the seed script against data you want to retain: it recreates the sample tables.
 
 ### Suggested presentation (3 minutes)
 
@@ -39,10 +39,20 @@ Copy `.env.example` to `.env` if no configuration exists, then fill in the selec
 
 - `LLM_PROVIDER=anthropic`: set `ANTHROPIC_API_KEY` and optionally `ANTHROPIC_MODEL`.
 - `LLM_PROVIDER=openai`: set `OPENAI_API_KEY`, `OPENAI_MODEL`, and optionally `OPENAI_BASE_URL` for a compatible endpoint.
+- `LLM_PROVIDER=groq`: set `GROQ_API_KEY` and optionally `GROQ_MODEL`.
 - Optional tools use `TAVILY_API_KEY`, `OPENWEATHER_API_KEY`, `ALPHAVANTAGE_API_KEY`, `NEWSAPI_KEY`, or SMTP settings.
 - `API_BASE` controls the frontend's API address.
 
-The live graph runs planner → executor → reflector → executor/replan/reporter. It records tool inputs, failures, latency, estimated token costs, and charts. Failed tools trigger bounded replanning; a 15-call budget ends execution with a best-effort report. Reports and traces persist in `data/history.db`. This history is saved-run retrieval; prior analyses are not automatically supplied as conversational memory.
+The live graph runs planner → executor → reflector → executor/replan/reporter. Groq uses JSON mode for planning and tool arguments. Reflection uses rule-based checks for failures, remaining steps, and missing charts by default; `LLM_REFLECTION=true` enables model reflection and uses more quota. Schema inspection runs without an LLM call. The reporter builds summaries and tables directly from recorded tool results rather than asking a model to rewrite numbers and dates. Charts receive real SQL rows as `sql_rows`. The app records tool inputs and outputs, failures, latency, estimated token costs, and charts. Failed tools trigger bounded replanning; a 15-call budget ends execution with a best-effort report. Reports and traces persist in `data/history.db`. This history is saved-run retrieval; prior analyses are not automatically supplied as conversational memory.
+
+### Analyze your own CSV
+
+Upload a CSV using the sidebar, click **Use this CSV**, choose its filename under
+**Data source**, and select **Live AI**. The API imports the file into SQLite's
+`uploaded_data` table; the agent inspects its actual columns before querying.
+Uploads are limited to 5 MB, 50,000 rows, and 100 columns. Your full imported data
+is used for SQL aggregates, rather than only a preview. Uploads, history, and
+reports are shared among trusted reviewers using the same deployment.
 
 ```bash
 python scripts/run_task.py --question "What was delivered revenue by region in 2024?" --save-report
@@ -51,12 +61,83 @@ python -m eval.run_eval --no-llm-grading
 
 Evaluation uses live providers and can incur charges. No live evaluation score is claimed. Token costs are approximate model estimates.
 
-## API
+## Free hosted LLM and deployment
+
+The example configuration uses Groq through the existing OpenAI SDK; no extra
+dependency is required. Create a key at https://console.groq.com/keys and set these
+server environment variables (keep the key out of Git and the browser):
+
+```dotenv
+LLM_PROVIDER=groq
+GROQ_API_KEY=your-groq-key
+GROQ_MODEL=openai/gpt-oss-120b
+GROQ_FREE_TIER=true
+LLM_TIMEOUT_SECONDS=45
+```
+
+`GROQ_FREE_TIER=true` sets the displayed estimate to $0; it does not select or
+enforce a billing plan. Use it only while your Groq account is on the free plan.
+Requests and tokens have per-minute and daily limits shared across your
+organization. Check [your limits](https://console.groq.com/settings/limits) and
+[Groq rate limits](https://console.groq.com/docs/rate-limits). Restart the API after
+changing configuration. A provider switch alone does not guarantee answer accuracy;
+verify live reports against database results before deployment.
+
+Alternatively, OpenRouter is still supported:
+
+```dotenv
+LLM_PROVIDER=openai
+OPENAI_API_KEY=your-openrouter-key
+OPENAI_BASE_URL=https://openrouter.ai/api/v1
+OPENAI_MODEL=openrouter/free
+LLM_TIMEOUT_SECONDS=45
+```
+
+You can instead select an available model ID ending in `:free` for more consistent
+behavior. The free router can select different models across the agent's calls.
+No paid fallback is configured. Free model token estimates are displayed as $0.
+Existing `.env` files are not changed when `.env.example` changes.
+
+Free inference has quotas and availability limits; each analysis makes multiple
+LLM requests (planner, executor, and reflector), so one analysis consumes
+more than one request. Check your account's remaining quota before demonstrations.
+See [free router](https://openrouter.ai/openrouter/free) and
+[rate limits](https://openrouter.ai/docs/api_reference/limits).
+
+For free Render hosting, use the included `render.yaml` Blueprint and supply
+`GROQ_API_KEY` in Render's secret settings. The Docker image starts the full app:
+Streamlit uses the host's `PORT`; the API listens privately on localhost.
+`python scripts/start_app.py` runs the same setup locally. It generates an internal
+API token automatically, so visitors do not enter an access code.
+
+For separate API/frontend services, set the same `AGENTIQ_API_TOKEN` in both
+servers and set the frontend's `API_BASE` to the API URL. The frontend forwards
+the token automatically. Docker Compose already does this. The token stays on
+the server and is not a visitor login. Anyone able to reach the UI can use it.
+
+Render's free filesystem is temporary: uploads, charts and saved history can be
+lost on a restart/redeploy. The sample database is recreated automatically.
+See [deployment guide](docs/DEPLOYMENT.md) for setup and persistence options.
+
+All routes except the minimal `/health` endpoint are protected, including API docs
+and downloads. Use HTTPS. The API allows one analysis at a time to avoid competing
+for a free provider's quota. Groq retries transient rate limits; analyses can take
+several minutes under the free plan.
+
+This deployment is for you and trusted reviewers. Python runs in a disposable
+process that is killed after 30 seconds, with provider credentials omitted from
+its environment. It is not an OS sandbox: libraries can still access local files
+and the network. Public users require stronger OS/container isolation and
+individual accounts with separate data and quotas. See [deployment guide](docs/DEPLOYMENT.md).
+
+## API endpoints
 
 - `GET /health`: process health.
-- `POST /run`: `{ "question": "…", "mode": "demo" | "live" }`; returns an independently generated run ID and analysis summary.
+- `GET /capabilities`: configured and enabled features, without credentials.
+- `POST /datasets?filename=data.csv`: raw CSV bytes; returns a dataset ID.
+- `POST /run`: `{ "question": "…", "mode": "demo" | "live", "dataset_id": null }`; optional dataset ID selects an uploaded CSV. Returns an independently generated run ID and analysis summary.
 - `GET /runs`: recent saved runs.
-- `GET /trace/{session_id}`: plan, tool inputs, logs, and report markdown.
+- `GET /trace/{session_id}`: plan, tool inputs and outputs, logs, and report markdown.
 - `GET /report/{session_id}`: self-contained HTML report.
 - `GET /chart/{session_id}/{index}`: chart PNG.
 - http://localhost:8000/docs: interactive API reference.
@@ -79,6 +160,7 @@ ruff check app eval tests frontend scripts
 ```
 
 Integration tests run all four demo questions against real sample data and verify persistence, report downloads, chart bytes, input validation, and retry routing. Seed the sample DB before running tests on a fresh checkout. CI performs seeding automatically.
+Regression tests also cover reviewer access, the Streamlit demo flow, CSV import and selection, quarter boundaries, SQL-to-chart data transfer, worker termination, and evidence-based reports. CI needs no live provider credentials.
 
 ## Project layout
 
@@ -93,4 +175,4 @@ Integration tests run all four demo questions against real sample data and verif
 
 ## Scope and deployment limits
 
-This is a local showcase application. The API has no authentication, and saved history is shared among users of an instance. Restrict access to trusted users. Python execution uses restricted builtins but exposed analysis libraries still have filesystem capabilities; its thread timeout does not kill running code. Run untrusted generated code in an isolated worker before exposing the app publicly. Web/API/email tools require credentials and connectivity and are separate from the offline demo. SQLite queries open databases read-only; external Postgres schema inspection is not yet supported. The interface displays completed execution traces, not streamed progress.
+This is a trusted-reviewer application. Access protection is enabled when `AGENTIQ_API_TOKEN` is configured. Saved history and uploaded data are shared among reviewers. Python execution has a process timeout but is not a security sandbox. Web/API/email tools require working credentials and connectivity and are separate from the offline demo. Optional integrations can be disabled with `ENABLE_WEB_SEARCH`, `ENABLE_WEATHER`, `ENABLE_FINANCE`, `ENABLE_NEWS`, or `ENABLE_EMAIL`. After updating a rejected key, re-enable its feature and restart the API. SQLite queries open databases read-only; external Postgres schema inspection is not yet supported. The interface displays completed execution traces, not streamed progress. Generated SQL still needs to match the intended business definitions; the report preserves the query and its actual results for review.

@@ -1,0 +1,25 @@
+services:
+  - type: web
+    name: agentiq
+    runtime: docker
+    plan: free
+    healthCheckPath: /_stcore/health
+    envVars:
+      - key: LLM_PROVIDER
+        value: groq
+      - key: GROQ_MODEL
+        value: openai/gpt-oss-120b
+      - key: GROQ_FREE_TIER
+        value: "true"
+      - key: GROQ_API_KEY
+        sync: false
+      - key: ENABLE_WEB_SEARCH
+        value: "false"
+      - key: ENABLE_WEATHER
+        value: "false"
+      - key: ENABLE_NEWS
+        value: "false"
+      - key: ENABLE_FINANCE
+        value: "false"
+      - key: ENABLE_EMAIL
+        value: "false"

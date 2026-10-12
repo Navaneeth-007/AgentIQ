@@ -7,6 +7,8 @@ Each node gets a dedicated function that formats its prompt from state.
 
 from __future__ import annotations
 
+from app.capabilities import capabilities
+
 AVAILABLE_TOOLS = """
 Available tools:
   schema_inspect(db_path: str = "default")
@@ -32,6 +34,9 @@ Available tools:
 
   api_fetch(service: str, params: dict)
     → Call external APIs. Supported services: weather, finance, news.
+    → weather params: {"city": "Bengaluru", "days": 1} (1–5 days).
+    → finance params: {"ticker": "IBM", "metric": "price"} (stock quotes only).
+    → news params: {"query": "supply chain", "num_articles": 5}.
     → Use for: live data enrichment (e.g. weather for supply chain questions).
 
   email_send(to: str, subject: str, body: str, attachments: list[str] = [])
@@ -39,12 +44,45 @@ Available tools:
     → Use only when the user explicitly asked for email delivery.
 """
 
+DATA_RULES = """
+For the bundled sample database:
+- Revenue means SUM(orders.amount) for orders.status = 'delivered'. The amount is
+  already the order total; do not multiply it by quantity.
+- Sales periods use orders.order_date, not shipped_date, unless explicitly asked
+  about shipping or delivery dates.
+- Region means orders.region. Qualify column names when joining tables to avoid
+  ambiguous columns; no customer join is needed to group sales by region.
+- Customer lifetime value means delivered revenue observed in this dataset.
+- Shipping delay is julianday(shipped_date) - julianday(order_date), for delivered
+  orders with a non-null shipped_date. Do not use today's date for shipped orders.
+- The data is synthetic historical data, not current business performance.
+- Never aggregate a truncated row preview; compute aggregates in SQL.
+- For rankings without a requested number of entries, return the top 10.
+- For shipping summaries, query counts and regional aggregates in SQL rather
+  than returning every order to summarize in the model.
+- For "last quarter", use the latest_complete_quarter dates returned by
+  schema_inspect exactly. If the latest date is a quarter's final day, that
+  quarter IS complete and must be included (e.g. 2024-12-31 means Q4 2024).
+"""
 
-def planner_prompt(question: str, scratchpad: str = "") -> str:
+
+def planner_prompt(
+    question: str, scratchpad: str = "", sample_data: bool = True
+) -> str:
     context = f"\n\nContext from prior steps:\n{scratchpad}" if scratchpad else ""
+    features = capabilities()
+    availability = ", ".join(
+        f"{name}={'enabled' if features[name] else 'unavailable'}"
+        for name in ["web_search", "weather", "finance", "news", "email"]
+    )
     return f"""You are a data analyst planning agent. Your job is to decompose the user's question into a precise, ordered list of steps to answer it fully.
 
 {AVAILABLE_TOOLS}
+
+{DATA_RULES if sample_data else "The selected source is an uploaded CSV in the uploaded_data table. Inspect its schema. Do not assume it has sample business columns or definitions."}
+
+Optional feature availability: {availability}
+Never plan unavailable features. If required, report that they need configuration.
 
 Rules:
 - Choose the minimum number of steps needed. Don't add steps for their own sake.
@@ -67,11 +105,21 @@ Output format:
 User question: {question}{context}"""
 
 
-def executor_prompt(step_description: str, tool_name: str, scratchpad: str) -> str:
+def executor_prompt(
+    step_description: str,
+    tool_name: str,
+    scratchpad: str,
+    question: str = "",
+    sample_data: bool = True,
+) -> str:
     return f"""You are executing step: "{step_description}" using tool: {tool_name}.
 
 Context from prior steps:
 {scratchpad or "None yet."}
+
+Original user question: {question}
+
+{DATA_RULES if sample_data else "Use only columns found in the uploaded_data schema. The application supplies the selected database path automatically."}
 
 {AVAILABLE_TOOLS}
 
@@ -83,7 +131,12 @@ For sql_query: {{"query": "SELECT ...", "db_path": "default"}}
 For schema_inspect: {{"db_path": "default"}}
 For web_search: {{"query": "...", "num_results": 5}}
 For python_repl: {{"code": "df = pd.DataFrame(...)\\nprint(df)"}}
-Python already provides pd, np, plt and chart_path. Do not use imports. Save charts with plt.savefig(chart_path).
+Python already provides pd, np, plt, chart_path and sql_rows (the full rows from
+the most recent successful SQL query). Build df = pd.DataFrame(sql_rows) rather
+than retyping values or creating example data. Imports of pandas, numpy,
+matplotlib, math, datetime, calendar, json, statistics, collections, itertools,
+and decimal are supported; do not import other modules. Save charts
+with plt.savefig(chart_path).
 For file_read: {{"path": "..."}}
 For api_fetch: {{"service": "weather|finance|news", "params": {{...}}}}
 For email_send: {{"to": "...", "subject": "...", "body": "...", "attachments": []}}"""
@@ -150,4 +203,9 @@ Rules:
 - Be specific with numbers — don't say "high", say "42% above average".
 - If charts were generated, reference them naturally in the findings.
 - Do not invent data. Only report what was found in the analysis.
+- Copy numerical results exactly from tool output. Never substitute example values.
+- Compute derived totals, percentages, or averages with sql_query or python_repl before reporting them.
+- If any required step failed or evidence is missing, explicitly say the analysis is incomplete.
+- Write the report now using the evidence supplied. You cannot execute tools or
+  run Python here. Do not emit tool calls; output markdown text only.
 - Output markdown directly, no preamble."""

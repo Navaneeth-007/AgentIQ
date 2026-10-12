@@ -1,5 +1,6 @@
 """Start the showcase API, creating sample data only if missing."""
 
+import os
 import sys
 from pathlib import Path
 
@@ -11,4 +12,4 @@ from scripts.seed_database import DB_PATH, seed
 if __name__ == "__main__":
     if not DB_PATH.exists():
         seed()
-    uvicorn.run("app.main:app", host="0.0.0.0", port=8000)
+    uvicorn.run("app.main:app", host="0.0.0.0", port=int(os.getenv("PORT", "8000")))

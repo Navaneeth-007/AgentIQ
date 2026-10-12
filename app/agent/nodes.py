@@ -13,6 +13,8 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import re
 import time
 from typing import Any
 
@@ -20,12 +22,14 @@ from app.agent.prompts import (
     executor_prompt,
     planner_prompt,
     reflector_prompt,
-    reporter_prompt,
 )
 from app.agent.state import AgentState, PlanStep, ToolCall
+from app.capabilities import capabilities
+from app.errors import safe_error
 from app.generation.cost_tracker import estimate_cost
 from app.generation.llm_client import LLMClient
 from app.guardrails import MAX_TOOL_CALLS, check_tool_budget
+from app.reporting.evidence_report import evidence_report
 from app.reporting.report_builder import build_html_report
 from app.tools.api_tool import fetch_api
 from app.tools.email_tool import send_email
@@ -47,13 +51,40 @@ TOOL_REGISTRY = {
 }
 
 
+def _prompt_evidence(tool: str, output: Any) -> str:
+    """Keep valid JSON evidence compact enough for a free model's token budget."""
+    if tool == "schema_inspect" and isinstance(output, dict):
+        output = {
+            "tables": {
+                t["name"]: {c["name"]: c["type"] for c in t["columns"]}
+                for t in output.get("tables", [])
+            },
+            "date_context": output.get("date_context"),
+        }
+    encoded = json.dumps(output, default=str, separators=(",", ":"))
+    if len(encoded) > 10000 and isinstance(output, dict) and "rows" in output:
+        output = {
+            **output,
+            "rows": output["rows"][:40],
+            "truncated": True,
+            "note": "Prompt preview only. Use SQL aggregates; full output is in the trace.",
+        }
+        encoded = json.dumps(output, default=str, separators=(",", ":"))
+    return encoded
+
+
 def _call_llm(
-    client: LLMClient, prompt: str, state: AgentState
+    client: LLMClient,
+    prompt: str,
+    state: AgentState,
+    *,
+    json_mode: bool = False,
+    max_tokens: int = 2048,
 ) -> tuple[str, int, float]:
     """Call LLM, return (text, tokens_used, cost_usd)."""
-    response = client.complete(prompt)
+    response = client.complete(prompt, json_mode=json_mode, max_tokens=max_tokens)
     tokens = response.get("usage", {}).get("total_tokens", 0)
-    cost = estimate_cost(tokens, model=client.model)
+    cost = estimate_cost(tokens, model=client.model, provider=client.provider)
     return response["content"], tokens, cost
 
 
@@ -89,10 +120,16 @@ def planner_node(state: AgentState) -> dict:
     On re-plan (retry), passes scratchpad so planner knows what's been tried.
     """
     client = LLMClient()
-    prompt = planner_prompt(state["question"], scratchpad=state.get("scratchpad", ""))
+    prompt = planner_prompt(
+        state["question"],
+        scratchpad=state.get("scratchpad", ""),
+        sample_data=state.get("db_path", "default") == "default",
+    )
 
     t0 = time.time()
-    raw, tokens, cost = _call_llm(client, prompt, state)
+    raw, tokens, cost = _call_llm(
+        client, prompt, state, json_mode=True, max_tokens=1024
+    )
     latency = (time.time() - t0) * 1000
 
     planner_error: str | None = None
@@ -101,6 +138,11 @@ def planner_node(state: AgentState) -> dict:
         plan_data = parsed.get("plan")
         if not isinstance(plan_data, list) or not plan_data:
             raise ValueError("Planner returned an empty or invalid plan")
+        if any(
+            not isinstance(s, dict) or s.get("tool") not in TOOL_REGISTRY
+            for s in plan_data
+        ):
+            raise ValueError("Planner selected an unknown tool")
         steps: list[PlanStep] = [
             PlanStep(
                 step_id=s["step_id"],
@@ -168,9 +210,18 @@ def executor_node(state: AgentState) -> dict:
     )
 
     # Ask LLM for exact tool input
-    prompt = executor_prompt(step["description"], step["tool"], state["scratchpad"])
+    prompt = executor_prompt(
+        step["description"],
+        step["tool"],
+        state["scratchpad"],
+        state["question"],
+        sample_data=state.get("db_path", "default") == "default",
+    )
     t0 = time.time()
-    raw, tokens, cost = _call_llm(client, prompt, state)
+    if step["tool"] == "schema_inspect":
+        raw, tokens, cost = '{"db_path": "default"}', 0, 0.0
+    else:
+        raw, tokens, cost = _call_llm(client, prompt, state, json_mode=True)
     latency = (time.time() - t0) * 1000
 
     tool_input: dict = {}
@@ -194,6 +245,14 @@ def executor_node(state: AgentState) -> dict:
         error = None
 
     # Execute the tool
+    if step["tool"] in {"schema_inspect", "sql_query"}:
+        tool_input["db_path"] = state.get("db_path", "default")
+    features = capabilities()
+    feature = {"web_search": "web_search", "email_send": "email"}.get(step["tool"])
+    if step["tool"] == "api_fetch":
+        feature = tool_input.get("service")
+    if feature and not features.get(feature, False):
+        error = f"The {feature} feature is unavailable. Configure and enable it first."
     if not error:
         tool_fn = TOOL_REGISTRY.get(step["tool"])
         if tool_fn is None:
@@ -201,12 +260,24 @@ def executor_node(state: AgentState) -> dict:
         else:
             t1 = time.time()
             try:
+                if step["tool"] == "python_repl":
+                    last_sql = next(
+                        (
+                            tc
+                            for tc in reversed(state["tool_calls"])
+                            if tc["tool_name"] == "sql_query" and not tc.get("error")
+                        ),
+                        None,
+                    )
+                    tool_input["sql_rows"] = (
+                        last_sql["tool_output"]["rows"] if last_sql else []
+                    )
                 tool_output = tool_fn(**tool_input)
                 if isinstance(tool_output, dict) and tool_output.get("error"):
                     error = str(tool_output["error"])
             except Exception as exc:  # noqa: BLE001 — isolate tool failures
-                error = str(exc)
-                logger.error("Tool %s failed: %s", step["tool"], exc)
+                error = safe_error(exc)
+                logger.error("Tool %s failed: %s", step["tool"], error)
             latency += (time.time() - t1) * 1000
 
     # Build tool call record
@@ -226,7 +297,8 @@ def executor_node(state: AgentState) -> dict:
     scratchpad_entry = (
         f"\n## Step {step_idx + 1}: {step['description']}\n"
         f"Tool: {step['tool']}\n"
-        f"Output: {json.dumps(tool_output, default=str)[:2000]}\n"
+        f"Input: {json.dumps(tool_input, default=str) if step['tool'] != 'python_repl' else 'Analysis code is recorded in the trace.'}\n"
+        f"Output: {_prompt_evidence(step['tool'], tool_output)}\n"
         if not error
         else f"\n## Step {step_idx + 1}: {step['description']} [FAILED]\n"
         f"Error: {error}\n"
@@ -267,6 +339,43 @@ def reflector_node(state: AgentState) -> dict:
     Assess whether the current findings are sufficient to answer the question.
     Decides: continue with next step | replan | done.
     """
+    if os.getenv("LLM_REFLECTION", "false").lower() != "true":
+        failed = bool(state["tool_calls"] and state["tool_calls"][-1].get("error"))
+        more_steps = state["current_step"] < len(state["plan"])
+        needs_chart = bool(
+            re.search(
+                r"\b(chart|plot|histogram|graph)\b", state["question"], re.IGNORECASE
+            )
+        )
+        schema_only = all(
+            tc["tool_name"] == "schema_inspect" for tc in state["tool_calls"]
+        )
+        if failed or (
+            not more_steps
+            and (schema_only or (needs_chart and not state["chart_paths"]))
+        ):
+            action = "replan"
+            reflection = "The required evidence is missing or a tool failed; create a revised plan."
+        else:
+            action = "continue" if more_steps else "done"
+            reflection = (
+                "The tool succeeded; continue the remaining plan."
+                if more_steps
+                else "The planned tools completed."
+            )
+        return {
+            "reflection": reflection,
+            "retry_count": state["retry_count"] + (1 if action == "replan" else 0),
+            "step_logs": state["step_logs"]
+            + [
+                {
+                    "node": "reflector",
+                    "next_action": action,
+                    "latency_ms": 0,
+                    "tokens": 0,
+                }
+            ],
+        }
     client = LLMClient()
     prompt = reflector_prompt(
         state["question"],
@@ -276,7 +385,7 @@ def reflector_node(state: AgentState) -> dict:
     )
 
     t0 = time.time()
-    raw, tokens, cost = _call_llm(client, prompt, state)
+    raw, tokens, cost = _call_llm(client, prompt, state, json_mode=True, max_tokens=512)
     latency = (time.time() - t0) * 1000
 
     try:
@@ -290,6 +399,13 @@ def reflector_node(state: AgentState) -> dict:
     retry_count = state["retry_count"]
     if state["tool_calls"] and state["tool_calls"][-1].get("error"):
         next_action = "replan"
+    needs_chart = bool(
+        re.search(r"\b(chart|plot|histogram|graph)\b", state["question"], re.IGNORECASE)
+    )
+    if needs_chart and not state["chart_paths"] and next_action == "done":
+        next_action = (
+            "continue" if state["current_step"] < len(state["plan"]) else "replan"
+        )
     if next_action == "replan":
         retry_count += 1
 
@@ -317,16 +433,15 @@ def reporter_node(state: AgentState) -> dict:
     """
     Synthesise all findings into a structured markdown report and HTML version.
     """
-    client = LLMClient()
-    prompt = reporter_prompt(
-        state["question"], state["scratchpad"], state["chart_paths"]
-    )
-
     t0 = time.time()
-    raw, tokens, cost = _call_llm(client, prompt, state)
+    final_answer, report_markdown = evidence_report(
+        state["question"],
+        state["tool_calls"],
+        state["chart_paths"],
+        sample_data=state.get("db_path", "default") == "default",
+    )
+    tokens, cost = 0, 0.0
     latency = (time.time() - t0) * 1000
-
-    report_markdown = raw
     report_html = build_html_report(
         question=state["question"],
         markdown_body=report_markdown,
@@ -334,14 +449,6 @@ def reporter_node(state: AgentState) -> dict:
         tool_calls=state["tool_calls"],
         cost_usd=state["total_cost_usd"] + cost,
     )
-
-    # Extract first paragraph as the one-line answer
-    lines = [
-        l.strip()
-        for l in report_markdown.split("\n")
-        if l.strip() and not l.startswith("#")
-    ]
-    final_answer = lines[0] if lines else "Analysis complete. See full report."
 
     return {
         "report_markdown": report_markdown,

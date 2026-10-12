@@ -14,3 +14,5 @@ COPY . .
 RUN python scripts/seed_database.py
 
 EXPOSE 8000 8501
+
+CMD ["python", "scripts/start_app.py"]

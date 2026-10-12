@@ -1,5 +1,5 @@
 """
-LLM client wrapper — Anthropic (default) or OpenAI, swappable via env var.
+LLM client wrapper — Anthropic, OpenAI-compatible endpoints, or Groq.
 
 Design principle: the agent nodes don't care which LLM they're calling.
 All provider differences are contained here.
@@ -15,28 +15,36 @@ from app import config  # noqa: F401
 
 class LLMClient:
     """
-    Thin wrapper around Anthropic / OpenAI completion APIs.
+    Thin wrapper around Anthropic / OpenAI / Groq completion APIs.
 
     Set LLM_PROVIDER=openai to switch. Default: anthropic.
     """
 
     def __init__(self):
         self.provider = os.getenv("LLM_PROVIDER", "anthropic").lower()
+        if self.provider not in {"anthropic", "openai", "groq"}:
+            raise ValueError(f"Unsupported LLM_PROVIDER: {self.provider}")
         self.model = self._default_model()
 
     def _default_model(self) -> str:
+        if self.provider == "groq":
+            return os.getenv("GROQ_MODEL", "openai/gpt-oss-120b")
         if self.provider == "openai":
             return os.getenv("OPENAI_MODEL", "gpt-4o")
         return os.getenv("ANTHROPIC_MODEL", "claude-sonnet-4-6")
 
     def complete(
-        self, prompt: str, system: str | None = None, max_tokens: int = 4096
+        self,
+        prompt: str,
+        system: str | None = None,
+        max_tokens: int = 2048,
+        json_mode: bool = False,
     ) -> dict[str, Any]:
         """
         Send a prompt and return {"content": str, "usage": {"total_tokens": N}}.
         """
-        if self.provider == "openai":
-            return self._openai_complete(prompt, system, max_tokens)
+        if self.provider in {"openai", "groq"}:
+            return self._openai_complete(prompt, system, max_tokens, json_mode)
         return self._anthropic_complete(prompt, system, max_tokens)
 
     def _anthropic_complete(
@@ -67,29 +75,43 @@ class LLMClient:
         return {"content": content, "usage": {"total_tokens": total_tokens}}
 
     def _openai_complete(
-        self, prompt: str, system: str | None, max_tokens: int
+        self, prompt: str, system: str | None, max_tokens: int, json_mode: bool = False
     ) -> dict:
         try:
             from openai import OpenAI
         except ImportError:
             raise ImportError("openai not installed. Run: pip install openai")
 
-        api_key = os.getenv("OPENAI_API_KEY")
+        key_name = "GROQ_API_KEY" if self.provider == "groq" else "OPENAI_API_KEY"
+        api_key = os.getenv(key_name)
         if not api_key:
-            raise OSError("OPENAI_API_KEY not set in .env")
+            raise OSError(f"{key_name} not set in .env")
 
         client_kwargs: dict[str, Any] = {
             "api_key": api_key,
             "timeout": float(os.getenv("LLM_TIMEOUT_SECONDS", "45")),
         }
-        base_url = os.getenv("OPENAI_BASE_URL")
+        base_url = (
+            "https://api.groq.com/openai/v1"
+            if self.provider == "groq"
+            else os.getenv("OPENAI_BASE_URL")
+        )
         if base_url:
             client_kwargs["base_url"] = base_url
 
         client = OpenAI(**client_kwargs)
-        messages = []
-        if system:
-            messages.append({"role": "system", "content": system})
+        messages = [
+            {
+                "role": "system",
+                "content": system
+                or (
+                    "You are a text-only data analyst. Tools are executed by the application, "
+                    "never by you. Do not invoke Python, browser, or other built-in tools. "
+                    "Return the requested JSON object or markdown text only. "
+                    "Use exact values from the supplied evidence."
+                ),
+            }
+        ]
         messages.append({"role": "user", "content": prompt})
 
         request_kwargs: dict[str, Any] = {
@@ -97,6 +119,11 @@ class LLMClient:
             "messages": messages,
             "max_tokens": max_tokens,
         }
+        if json_mode:
+            request_kwargs["response_format"] = {"type": "json_object"}
+        if self.provider == "groq" and self.model.startswith("openai/gpt-oss-"):
+            request_kwargs["reasoning_effort"] = "low"
+        request_kwargs["temperature"] = 0.2
         if base_url and "openrouter.ai" in base_url:
             request_kwargs["extra_body"] = {"reasoning": {"exclude": True}}
 

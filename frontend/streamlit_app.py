@@ -1,12 +1,22 @@
 """AgentIQ showcase and live analysis interface."""
 
 import os
+import sys
+from pathlib import Path
 
 import requests
 import streamlit as st
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from app import config  # noqa: F401 -- load local server configuration
+
 API_BASE = os.getenv("API_BASE", "http://localhost:8000").rstrip("/")
 st.set_page_config(page_title="AgentIQ · Data Analyst", page_icon="📊", layout="wide")
+
+# Authentication is between servers; visitors never enter or receive this secret.
+access_code = os.getenv("AGENTIQ_API_TOKEN", "")
+HEADERS = {"Authorization": f"Bearer {access_code}"} if access_code else {}
+selected_dataset_id = None
 QUESTIONS = [
     "Which product category had the highest revenue last quarter?",
     "Show me monthly sales trends for all regions as a chart.",
@@ -16,7 +26,7 @@ QUESTIONS = [
 
 
 def fetch(path):
-    response = requests.get(f"{API_BASE}{path}", timeout=15)
+    response = requests.get(f"{API_BASE}{path}", headers=HEADERS, timeout=15)
     response.raise_for_status()
     return response
 
@@ -24,7 +34,67 @@ def fetch(path):
 with st.sidebar:
     st.title("AgentIQ")
     st.caption("From business questions to evidence.")
+    try:
+        features = fetch("/capabilities").json()
+    except requests.RequestException as exc:
+        if exc.response is not None and exc.response.status_code == 401:
+            st.error(
+                "The frontend and analysis service have mismatched server credentials."
+            )
+        else:
+            st.error("Cannot connect to the analysis service.")
+        st.stop()
     mode = st.radio("Analysis mode", ["Demo", "Live AI"])
+    if mode == "Live AI" and not features["live_ai"]:
+        st.warning("Configure the model API key on the analysis service first.")
+    with st.expander("Available features"):
+        for name in [
+            "database_analysis",
+            "charts",
+            "web_search",
+            "weather",
+            "finance",
+            "news",
+            "email",
+        ]:
+            st.write(
+                f"{'✓' if features[name] else '—'} {name.replace('_', ' ').title()}"
+            )
+        st.caption(
+            "Availability reflects configuration; provider credentials and quotas may still need verification."
+        )
+    st.divider()
+    uploaded = st.file_uploader(
+        "Upload your data",
+        type=["csv"],
+        help="CSV with a header row, up to 5 MB and 50,000 rows.",
+    )
+    if uploaded is not None and st.button("Use this CSV"):
+        try:
+            response = requests.post(
+                f"{API_BASE}/datasets",
+                params={"filename": uploaded.name},
+                data=uploaded.getvalue(),
+                headers=HEADERS,
+                timeout=30,
+            )
+            if response.ok:
+                st.session_state["dataset"] = response.json()
+                st.session_state.pop("selected_run", None)
+            else:
+                st.error(response.json().get("detail", "Upload failed."))
+        except requests.RequestException:
+            st.error("Cannot upload the file. Check the API connection.")
+    if "dataset" in st.session_state:
+        dataset = st.session_state["dataset"]
+        source = st.radio("Data source", ["Sample business data", dataset["filename"]])
+        if source != "Sample business data":
+            selected_dataset_id = dataset["dataset_id"]
+            st.caption(
+                f"{dataset['row_count']:,} rows · {len(dataset['columns'])} columns"
+            )
+            if mode == "Demo":
+                st.info("Select Live AI to analyze your CSV.")
     st.caption(
         "Demo runs real calculations on synthetic historical data. Live AI uses your configured model and tools."
     )
@@ -52,7 +122,12 @@ question = st.text_area(
     height=85,
     placeholder=QUESTIONS[0],
 )
-if st.button("Run analysis", type="primary"):
+if st.button(
+    "Run analysis",
+    type="primary",
+    disabled=(selected_dataset_id is not None and mode == "Demo")
+    or (mode == "Live AI" and not features["live_ai"]),
+):
     if not question.strip():
         st.warning("Enter a question or select an example.")
     else:
@@ -63,8 +138,10 @@ if st.button("Run analysis", type="primary"):
                     json={
                         "question": question,
                         "mode": "demo" if mode == "Demo" else "live",
+                        "dataset_id": selected_dataset_id,
                     },
-                    timeout=300,
+                    timeout=600,
+                    headers=HEADERS,
                 )
                 if not response.ok:
                     st.error(response.json().get("detail", "Analysis failed."))

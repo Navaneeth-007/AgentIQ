@@ -47,6 +47,11 @@ def _fetch_weather(params: dict) -> dict:
         raise OSError("OPENWEATHER_API_KEY not set in .env")
 
     city = params.get("city", "")
+    if not isinstance(city, str) or not city.strip():
+        raise ValueError("Weather requires a city name.")
+    forecast_days = int(params.get("days", 3))
+    if not 1 <= forecast_days <= 5:
+        raise ValueError("Weather supports 1 to 5 forecast days.")
     # Geocode
     geo_resp = requests.get(
         "https://api.openweathermap.org/geo/1.0/direct",
@@ -68,7 +73,7 @@ def _fetch_weather(params: dict) -> dict:
             "lon": lon,
             "appid": api_key,
             "units": "metric",
-            "cnt": params.get("days", 3) * 8,
+            "cnt": forecast_days * 8,
         },
         timeout=10,
     )
@@ -95,7 +100,7 @@ def _fetch_weather(params: dict) -> dict:
 
 def _fetch_finance(params: dict) -> dict:
     """
-    Fetch stock price or company financials.
+    Fetch a stock quote.
     params: {"ticker": "AAPL", "metric": "price"}
     Requires: ALPHAVANTAGE_API_KEY
     """
@@ -104,13 +109,22 @@ def _fetch_finance(params: dict) -> dict:
         raise OSError("ALPHAVANTAGE_API_KEY not set in .env")
 
     ticker = params.get("ticker", "")
+    if not isinstance(ticker, str) or not ticker.strip():
+        raise ValueError("Finance requires a ticker symbol.")
+    if params.get("metric", "price") != "price":
+        raise ValueError("Finance currently supports only metric='price'.")
     resp = requests.get(
         "https://www.alphavantage.co/query",
         params={"function": "GLOBAL_QUOTE", "symbol": ticker, "apikey": api_key},
         timeout=10,
     )
     resp.raise_for_status()
-    data = resp.json().get("Global Quote", {})
+    payload = resp.json()
+    data = payload.get("Global Quote", {})
+    if not data.get("05. price"):
+        raise ValueError(
+            "Finance provider returned no quote. Check the ticker, API key, permissions, and quota."
+        )
 
     return {
         "ticker": ticker,
@@ -130,12 +144,14 @@ def _fetch_news(params: dict) -> dict:
     api_key = os.getenv("NEWSAPI_KEY")
     if not api_key:
         raise OSError("NEWSAPI_KEY not set in .env")
+    if not str(params.get("query", "")).strip():
+        raise ValueError("News requires a search query.")
 
     resp = requests.get(
         "https://newsapi.org/v2/everything",
         params={
             "q": params.get("query", ""),
-            "pageSize": params.get("num_articles", 5),
+            "pageSize": max(1, min(int(params.get("num_articles", 5)), 20)),
             "sortBy": "publishedAt",
             "apiKey": api_key,
         },

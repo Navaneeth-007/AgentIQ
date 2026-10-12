@@ -14,6 +14,8 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 
+from app.config import ROOT
+
 
 def send_email(
     to: str,
@@ -37,7 +39,7 @@ def send_email(
     smtp_port = int(os.getenv("SMTP_PORT", "587"))
     smtp_user = os.getenv("SMTP_USER")
     smtp_password = os.getenv("SMTP_PASSWORD")
-    from_addr = os.getenv("EMAIL_FROM", smtp_user)
+    from_addr = os.getenv("EMAIL_FROM") or smtp_user
 
     if not smtp_user or not smtp_password:
         raise OSError(
@@ -57,18 +59,19 @@ def send_email(
 
     # Attach files
     for path_str in attachments or []:
-        path = Path(path_str)
-        if path.exists():
-            with open(path, "rb") as f:
-                part = MIMEBase("application", "octet-stream")
-                part.set_payload(f.read())
-                encoders.encode_base64(part)
-                part.add_header(
-                    "Content-Disposition", f"attachment; filename={path.name}"
-                )
-                msg.attach(part)
+        path = Path(path_str).resolve()
+        if not path.is_relative_to((ROOT / "data" / "reports").resolve()):
+            raise ValueError("Only generated reports and charts can be attached.")
+        if not path.is_file():
+            raise FileNotFoundError(f"Attachment not found: {path.name}")
+        with open(path, "rb") as f:
+            part = MIMEBase("application", "octet-stream")
+            part.set_payload(f.read())
+            encoders.encode_base64(part)
+            part.add_header("Content-Disposition", f"attachment; filename={path.name}")
+            msg.attach(part)
 
-    with smtplib.SMTP(smtp_host, smtp_port) as server:
+    with smtplib.SMTP(smtp_host, smtp_port, timeout=20) as server:
         server.starttls()
         server.login(smtp_user, smtp_password)
         server.sendmail(from_addr, to, msg.as_string())
