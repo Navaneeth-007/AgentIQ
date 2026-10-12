@@ -1,0 +1,23 @@
+name: Bug report
+description: Report a reproducible problem with AgentIQ.
+labels: [bug]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: What happened?
+      description: Describe the problem and expected result. Do not include keys or private data.
+    validations:
+      required: true
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      description: Include the analysis mode, sample question or synthetic CSV, and relevant error.
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: Local, Docker, or Render; Python version; provider/model if using live mode.

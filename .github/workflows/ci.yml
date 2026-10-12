@@ -2,9 +2,12 @@ name: CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main, dev, "codex/**"]
   pull_request:
-    branches: [main]
+    branches: [main, dev]
+
+permissions:
+  contents: read
 
 jobs:
   lint-and-test:
@@ -19,8 +22,7 @@ jobs:
 
       - name: Install dependencies
         run: |
-          pip install -r requirements.txt
-          pip install ruff pytest
+          pip install -r requirements-dev.txt
 
       - name: Lint (ruff)
         run: ruff check app eval tests frontend scripts

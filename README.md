@@ -1,178 +1,189 @@
-# AgentIQ — Agentic Data Analyst
+<p align="center">
+  <img src="docs/assets/banner.svg" alt="AgentIQ — From business questions to evidence" width="100%">
+</p>
 
-AgentIQ turns business questions into database analyses, charts, and downloadable HTML reports. The Streamlit interface offers a credential-free showcase and a live LangGraph agent with planning, tool execution, reflection, and reporting.
+<p align="center">
+  <a href="https://agentiq-9jrm.onrender.com"><strong>Live demo</strong></a> ·
+  <a href="#quick-start">Quick start</a> ·
+  <a href="docs/ARCHITECTURE.md">Architecture</a> ·
+  <a href="docs/DEPLOYMENT.md">Deployment</a> ·
+  <a href="docs/VERIFICATION.md">Verification</a>
+</p>
 
-## Run the showcase
+<p align="center">
+  <a href="https://github.com/Navaneeth-007/AgentIQ/actions/workflows/ci.yml"><img src="https://github.com/Navaneeth-007/AgentIQ/actions/workflows/ci.yml/badge.svg?branch=main" alt="CI"></a>
+  <img src="https://img.shields.io/badge/Python-3.11%2B-3776AB?logo=python&logoColor=white" alt="Python 3.11+">
+  <img src="https://img.shields.io/badge/FastAPI-API-009688?logo=fastapi&logoColor=white" alt="FastAPI">
+  <img src="https://img.shields.io/badge/LangGraph-agent_workflow-334155" alt="LangGraph agent workflow">
+  <img src="https://img.shields.io/badge/Groq-live_inference-F55036" alt="Groq live inference">
+</p>
 
-Use Python 3.11 or newer. From the project folder:
+**AgentIQ turns natural-language questions into SQL-backed findings, charts, and downloadable reports.** A Streamlit interface connects to a FastAPI service, where a LangGraph agent plans an analysis, executes tools, checks progress, and assembles evidence from actual query results.
+
+Built as an end-to-end portfolio project: an interactive product, an inspectable agent workflow, automated tests, and a working Docker deployment on Render.
+
+## Preview
+
+![AgentIQ interface with analysis controls and CSV upload](docs/assets/screenshots/overview.png)
+
+<details>
+<summary><strong>View the report and execution evidence</strong></summary>
+
+### Revenue report
+
+![Quarterly revenue report](docs/assets/screenshots/report.png)
+
+### Generated regional chart
+
+![Generated monthly delivered revenue chart](docs/assets/screenshots/chart.png)
+
+### Inspectable tool execution
+
+![Execution evidence showing the plan and SQL tool output](docs/assets/screenshots/evidence.png)
+
+Screenshots show the real local interface running a demo against synthetic sample data. Demo calculations execute real SQL and Python; they do not call an LLM.
+
+</details>
+
+## Features
+
+| Capability | What it does |
+| --- | --- |
+| Natural-language analysis | Plans and executes database analysis using Groq, with configurable Anthropic and OpenAI-compatible alternatives. |
+| CSV uploads | Imports your CSV into SQLite and queries its actual schema. Supports up to 5 MB, 50,000 rows, and 100 columns. |
+| SQL-backed reports | Copies recorded results into summaries and tables, preserving their values and associated dates. |
+| Charts | Runs pandas, NumPy, and Matplotlib in a separate process, using complete SQL results as chart inputs. |
+| Execution evidence | Exposes plans, tool inputs/outputs, failures, timings, tokens, and estimated costs for review. |
+| Bounded recovery | Replans after tool failures or missing evidence, with retry and tool-call limits. |
+| Downloadable HTML | Exports a self-contained report with embedded charts, suitable for offline viewing. |
+| Saved analyses | Retrieves past runs and their reports from a local SQLite history store. |
+| Credential-free demo | Runs four predefined analyses without any external service. |
+| Deployment | Runs the UI and a private backend in one Render/Docker service; opens without a visitor token prompt. |
+
+Optional web search, weather, stock quotes, news, and email adapters are implemented. They need valid credentials and are disabled on the hosted showcase. See the [integration guide](docs/CONFIGURATION.md).
+
+## Try it
+
+Open **[the live app](https://agentiq-9jrm.onrender.com)** and choose **Demo** to explore without using model quota. Select an example and click **Run analysis**, inspect **Execution evidence**, then download the report.
+
+| Example question | Demonstrates |
+| --- | --- |
+| Which product category had the highest revenue last quarter? | Relative date handling and revenue ranking. |
+| Show me monthly sales trends for all regions as a chart. | SQL aggregation and chart generation. |
+| Which customers have the highest lifetime value? | Customer ranking over the observed dataset. |
+| Find any orders with >7 day shipping delay and summarise them. | Shipping delay calculations and regional summaries. |
+
+The sample database contains **2,000 orders, 200 customers, 24 products, and 80 employees** from 2023–2024. It is synthetic historical data; revenue means delivered order revenue. “Lifetime value” means customer revenue observed within this dataset.
+
+Render's free service can take time to wake after inactivity. Live AI is subject to Groq's account quota. The hosted app shares history among visitors; use synthetic or non-sensitive data.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    UI[Streamlit interface] --> API[FastAPI service]
+    API --> P[Planner]
+    P --> E[Executor]
+    E --> R[Reflector]
+    R -->|Next step| E
+    R -->|Recover| P
+    R -->|Complete| B[Evidence reporter]
+    E --> T[SQL / Python / optional tools]
+    T --> D[(SQLite / uploaded CSV)]
+    B --> H[HTML report + charts]
+    API --> S[(Saved run history)]
+```
+
+Groq supplies plans and tool arguments. Schema inspection, default reflection, and report assembly run without model calls. The reporter uses recorded evidence instead of asking a model to rewrite numbers. Python receives the actual SQL rows and runs with a 30-second timeout. See [architecture and design decisions](docs/ARCHITECTURE.md).
+
+## Quick start
+
+Requires **Python 3.11+**. Run from the repository root:
 
 ```bash
+git clone https://github.com/Navaneeth-007/AgentIQ.git
+cd AgentIQ
 python -m venv .venv
-source .venv/bin/activate
+source .venv/bin/activate  # Windows: .venv\Scripts\activate
 pip install -r requirements.txt
-python scripts/start_api.py
+python scripts/start_app.py
 ```
 
-In another terminal, from the same folder:
+Open **http://localhost:8501**. Demo works immediately; the launcher creates sample data if missing, starts the backend privately, and generates an internal token automatically. You do not enter a token in the interface.
+
+### Enable live analysis
+
+Copy the example configuration only if you do not already have `.env`:
 
 ```bash
-source .venv/bin/activate
-streamlit run frontend/streamlit_app.py
+cp .env.example .env
 ```
 
-Open http://localhost:8501. The interface opens directly; server authentication is automatic. Leave **Demo** selected, click a sidebar example, and select **Run analysis**. The startup script creates the sample database only when it is missing. Do not run the seed script against data you want to retain: it recreates the sample tables.
-
-### Suggested presentation (3 minutes)
-
-1. Run **Which product category had the highest revenue last quarter?** Explain that relative dates use the latest complete quarter in the dataset.
-2. Open **Execution evidence** to show schema inspection, date inspection, the SQL query, and chart rendering.
-3. Download the HTML report: the chart is embedded, so the file works offline.
-4. Run **Show me monthly sales trends for all regions as a chart.** Compare regional trends.
-5. Select an analysis under **Recent analyses** to demonstrate persistent history.
-6. If provider credentials are configured, switch to **Live AI** and ask a new data question to demonstrate autonomous planning.
-
-Demo mode performs real calculations on the bundled SQLite database using four predefined analyses. It does not call or simulate an LLM. The dataset contains synthetic 2023–2024 records: 2,000 orders, 200 customers, 24 products, and 80 employees. Delivered orders define revenue. “Lifetime value” in the showcase means observed customer revenue within this dataset. Shipping analyses cover delivered orders with a recorded delay over seven days.
-
-## Live AI mode
-
-Copy `.env.example` to `.env` if no configuration exists, then fill in the selected provider's key. Existing environment variables take precedence over `.env`. Restart the API after changes.
-
-- `LLM_PROVIDER=anthropic`: set `ANTHROPIC_API_KEY` and optionally `ANTHROPIC_MODEL`.
-- `LLM_PROVIDER=openai`: set `OPENAI_API_KEY`, `OPENAI_MODEL`, and optionally `OPENAI_BASE_URL` for a compatible endpoint.
-- `LLM_PROVIDER=groq`: set `GROQ_API_KEY` and optionally `GROQ_MODEL`.
-- Optional tools use `TAVILY_API_KEY`, `OPENWEATHER_API_KEY`, `ALPHAVANTAGE_API_KEY`, `NEWSAPI_KEY`, or SMTP settings.
-- `API_BASE` controls the frontend's API address.
-
-The live graph runs planner → executor → reflector → executor/replan/reporter. Groq uses JSON mode for planning and tool arguments. Reflection uses rule-based checks for failures, remaining steps, and missing charts by default; `LLM_REFLECTION=true` enables model reflection and uses more quota. Schema inspection runs without an LLM call. The reporter builds summaries and tables directly from recorded tool results rather than asking a model to rewrite numbers and dates. Charts receive real SQL rows as `sql_rows`. The app records tool inputs and outputs, failures, latency, estimated token costs, and charts. Failed tools trigger bounded replanning; a 15-call budget ends execution with a best-effort report. Reports and traces persist in `data/history.db`. This history is saved-run retrieval; prior analyses are not automatically supplied as conversational memory.
-
-### Analyze your own CSV
-
-Upload a CSV using the sidebar, click **Use this CSV**, choose its filename under
-**Data source**, and select **Live AI**. The API imports the file into SQLite's
-`uploaded_data` table; the agent inspects its actual columns before querying.
-Uploads are limited to 5 MB, 50,000 rows, and 100 columns. Your full imported data
-is used for SQL aggregates, rather than only a preview. Uploads, history, and
-reports are shared among trusted reviewers using the same deployment.
-
-```bash
-python scripts/run_task.py --question "What was delivered revenue by region in 2024?" --save-report
-python -m eval.run_eval --no-llm-grading
-```
-
-Evaluation uses live providers and can incur charges. No live evaluation score is claimed. Token costs are approximate model estimates.
-
-## Free hosted LLM and deployment
-
-The example configuration uses Groq through the existing OpenAI SDK; no extra
-dependency is required. Create a key at https://console.groq.com/keys and set these
-server environment variables (keep the key out of Git and the browser):
+Set these values in `.env`, then restart the app:
 
 ```dotenv
 LLM_PROVIDER=groq
-GROQ_API_KEY=your-groq-key
+GROQ_API_KEY=your-groq-api-key
 GROQ_MODEL=openai/gpt-oss-120b
 GROQ_FREE_TIER=true
-LLM_TIMEOUT_SECONDS=45
 ```
 
-`GROQ_FREE_TIER=true` sets the displayed estimate to $0; it does not select or
-enforce a billing plan. Use it only while your Groq account is on the free plan.
-Requests and tokens have per-minute and daily limits shared across your
-organization. Check [your limits](https://console.groq.com/settings/limits) and
-[Groq rate limits](https://console.groq.com/docs/rate-limits). Restart the API after
-changing configuration. A provider switch alone does not guarantee answer accuracy;
-verify live reports against database results before deployment.
+For your own data: upload a CSV, click **Use this CSV**, select it under **Data source**, and choose **Live AI**.
 
-Alternatively, OpenRouter is still supported:
+`GROQ_FREE_TIER` controls the displayed cost estimate; it does not enforce a billing plan. No paid fallback is configured. Model availability and quotas depend on your provider account. Configuration details and other providers are in [the configuration guide](docs/CONFIGURATION.md).
 
-```dotenv
-LLM_PROVIDER=openai
-OPENAI_API_KEY=your-openrouter-key
-OPENAI_BASE_URL=https://openrouter.ai/api/v1
-OPENAI_MODEL=openrouter/free
-LLM_TIMEOUT_SECONDS=45
-```
-
-You can instead select an available model ID ending in `:free` for more consistent
-behavior. The free router can select different models across the agent's calls.
-No paid fallback is configured. Free model token estimates are displayed as $0.
-Existing `.env` files are not changed when `.env.example` changes.
-
-Free inference has quotas and availability limits; each analysis makes multiple
-LLM requests (planner, executor, and reflector), so one analysis consumes
-more than one request. Check your account's remaining quota before demonstrations.
-See [free router](https://openrouter.ai/openrouter/free) and
-[rate limits](https://openrouter.ai/docs/api_reference/limits).
-
-For free Render hosting, use the included `render.yaml` Blueprint and supply
-`GROQ_API_KEY` in Render's secret settings. The Docker image starts the full app:
-Streamlit uses the host's `PORT`; the API listens privately on localhost.
-`python scripts/start_app.py` runs the same setup locally. It generates an internal
-API token automatically, so visitors do not enter an access code.
-
-For separate API/frontend services, set the same `AGENTIQ_API_TOKEN` in both
-servers and set the frontend's `API_BASE` to the API URL. The frontend forwards
-the token automatically. Docker Compose already does this. The token stays on
-the server and is not a visitor login. Anyone able to reach the UI can use it.
-
-Render's free filesystem is temporary: uploads, charts and saved history can be
-lost on a restart/redeploy. The sample database is recreated automatically.
-See [deployment guide](docs/DEPLOYMENT.md) for setup and persistence options.
-
-All routes except the minimal `/health` endpoint are protected, including API docs
-and downloads. Use HTTPS. The API allows one analysis at a time to avoid competing
-for a free provider's quota. Groq retries transient rate limits; analyses can take
-several minutes under the free plan.
-
-This deployment is for you and trusted reviewers. Python runs in a disposable
-process that is killed after 30 seconds, with provider credentials omitted from
-its environment. It is not an OS sandbox: libraries can still access local files
-and the network. Public users require stronger OS/container isolation and
-individual accounts with separate data and quotas. See [deployment guide](docs/DEPLOYMENT.md).
-
-## API endpoints
-
-- `GET /health`: process health.
-- `GET /capabilities`: configured and enabled features, without credentials.
-- `POST /datasets?filename=data.csv`: raw CSV bytes; returns a dataset ID.
-- `POST /run`: `{ "question": "…", "mode": "demo" | "live", "dataset_id": null }`; optional dataset ID selects an uploaded CSV. Returns an independently generated run ID and analysis summary.
-- `GET /runs`: recent saved runs.
-- `GET /trace/{session_id}`: plan, tool inputs and outputs, logs, and report markdown.
-- `GET /report/{session_id}`: self-contained HTML report.
-- `GET /chart/{session_id}/{index}`: chart PNG.
-- http://localhost:8000/docs: interactive API reference.
-
-## Docker
+### Docker
 
 ```bash
-cp .env.example .env  # only if no .env already exists
-mkdir -p data
+cp .env.example .env  # skip if .env already exists
 docker compose up --build
 ```
 
-Open http://localhost:8501. The API seeds an empty mounted data folder on startup. `.dockerignore` excludes credentials, local environments, and generated data from the image.
+Open **http://localhost:8501**. Compose mounts `./data` for local persistence and forwards the internal API token between servers automatically. Credentials and generated data are excluded from Docker's build context.
 
-## Verification
+### Deploy on Render
+
+The included [render.yaml](render.yaml) defines a free Docker web service. Connect your repository as a Render Blueprint and supply `GROQ_API_KEY`. Streamlit binds to the assigned port; the backend stays on loopback. Follow the [deployment guide](docs/DEPLOYMENT.md) for setup and data persistence limitations.
+
+## Development
 
 ```bash
-python -m pytest -q
+pip install -r requirements-dev.txt
+python scripts/seed_database.py  # fresh checkout only: recreates sample tables
+pytest -q
 ruff check app eval tests frontend scripts
 ```
 
-Integration tests run all four demo questions against real sample data and verify persistence, report downloads, chart bytes, input validation, and retry routing. Seed the sample DB before running tests on a fresh checkout. CI performs seeding automatically.
-Regression tests also cover reviewer access, the Streamlit demo flow, CSV import and selection, quarter boundaries, SQL-to-chart data transfer, worker termination, and evidence-based reports. CI needs no live provider credentials.
+The current suite contains **45 tests**, covering all demo analyses, API access, CSV handling, the Streamlit flow, report evidence, quarter boundaries, and Python timeout behavior. CI runs without external API keys. [Verification notes](docs/VERIFICATION.md) distinguish automated checks from live provider tests.
 
-## Project layout
+Use `make help` for common commands. [Contributing](CONTRIBUTING.md) describes the development workflow. The live evaluation harness in `eval/` is separate from CI and consumes provider quota; no benchmark score is claimed.
 
-- `app/agent/`: LangGraph state, nodes, and prompts.
-- `app/tools/`: SQL, Python, files, web search, APIs, email.
-- `app/demo.py`: predefined showcase analyses with actual SQL and charts.
-- `app/memory/long_term.py`: persistent run store.
-- `app/reporting/`: HTML export with embedded charts.
-- `frontend/`: Streamlit interface.
-- `scripts/`: startup, sample seeding, live task CLI.
-- `tests/`, `eval/`: regression checks and live evaluation harness.
+## Repository structure
 
-## Scope and deployment limits
+```text
+AgentIQ/
+├── app/
+│   ├── agent/          # LangGraph state, prompts, execution and routing
+│   ├── generation/     # Provider client and token cost estimates
+│   ├── memory/         # SQLite saved-run store
+│   ├── reporting/      # Evidence summaries and HTML export
+│   ├── tools/          # SQL, Python worker and optional integrations
+│   ├── datasets.py     # CSV validation and import
+│   ├── demo.py         # Deterministic showcase analyses
+│   └── main.py         # FastAPI routes
+├── frontend/           # Streamlit interface
+├── scripts/            # Launchers, seeding and live task CLI
+├── tests/              # Automated checks
+├── eval/               # Live evaluation harness and task definitions
+├── docs/               # Architecture, API, configuration and screenshots
+├── .github/            # CI and issue / pull request templates
+├── Dockerfile
+├── docker-compose.yml
+└── render.yaml
+```
 
-This is a trusted-reviewer application. Access protection is enabled when `AGENTIQ_API_TOKEN` is configured. Saved history and uploaded data are shared among reviewers. Python execution has a process timeout but is not a security sandbox. Web/API/email tools require working credentials and connectivity and are separate from the offline demo. Optional integrations can be disabled with `ENABLE_WEB_SEARCH`, `ENABLE_WEATHER`, `ENABLE_FINANCE`, `ENABLE_NEWS`, or `ENABLE_EMAIL`. After updating a rejected key, re-enable its feature and restart the API. SQLite queries open databases read-only; external Postgres schema inspection is not yet supported. The interface displays completed execution traces, not streamed progress. Generated SQL still needs to match the intended business definitions; the report preserves the query and its actual results for review.
+## Scope
+
+This is a functional showcase for trusted reviewers, with shared data and history. It does not implement individual accounts, tenant isolation, or an OS sandbox for generated Python. SQL is read-only, but Python libraries can still access files and the network. Data stays on the app host; live prompts and selected query results go to the model provider. Generated SQL still needs to match the business question, and tool recovery can consume extra quota.
+
+Free Render storage is temporary, so uploads and history may disappear after restarts or deployments. For private or multi-user production use, add authentication, per-user data isolation and quotas, stronger worker isolation, and persistent storage. See [security](SECURITY.md) and [deployment](docs/DEPLOYMENT.md).

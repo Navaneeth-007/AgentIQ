@@ -19,3 +19,6 @@ dist/
 # Generated local data, databases, reports, and logs
 data/
 *.log
+
+# Local evaluation artifacts
+eval/last_run_results.json

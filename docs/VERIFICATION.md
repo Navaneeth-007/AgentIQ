@@ -6,8 +6,12 @@ both health checks returned HTTP 200. History returned HTTP 401 without the
 internal API token and was available with it. The frontend test verifies it opens
 directly and completes a demo using automatic server authentication. The new
 single-service launcher was started successfully with a loopback-only API and
-public Streamlit port. A Docker image build was not run because the local Docker
-daemon is not running. Render publishing awaits a connected hosting account.
+public Streamlit port. Render successfully built the Docker image and published the service in Singapore
+on its free plan. The hosted demo and live Groq analysis both completed. The hosted
+Q4 revenue result matched $11,834.55 for Electronics; one Python tool call failed
+and the agent recovered through replanning. No benchmark score is claimed.
+
+Live app: [AgentIQ](https://agentiq-9jrm.onrender.com).
 
 Five real Groq checks passed with `openai/gpt-oss-120b`:
 
